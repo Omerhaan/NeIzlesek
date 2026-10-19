@@ -8,16 +8,11 @@ import {
   ArrowRight,
   Heart,
   Film,
-  Sparkles,
-  RotateCcw,
 } from 'lucide-react'
 import { createRoom, getRoomByCode } from '../services/supabase'
 import type { Room } from '../types'
 import { IMAGE_BASE_URL } from '../services/tmdb'
-import {
-  type TasteProfile,
-  getTopGenresWithPercentages,
-} from '../services/tasteProfile'
+import type { TasteProfile } from '../services/tasteProfile'
 
 interface UserProfileProps {
   tasteProfile: TasteProfile
@@ -25,7 +20,6 @@ interface UserProfileProps {
   onRoomCreatedOrJoined: (room: Room) => void
   onLeaveRoom: () => void
   onNavigateToMatch: () => void
-  onRetakeColdStart?: () => void
 }
 
 export function UserProfile({
@@ -34,7 +28,6 @@ export function UserProfile({
   onRoomCreatedOrJoined,
   onLeaveRoom,
   onNavigateToMatch,
-  onRetakeColdStart,
 }: UserProfileProps) {
   const [createdRoom, setCreatedRoom] = useState<Room | null>(null)
   const [joinCode, setJoinCode] = useState('')
@@ -92,13 +85,12 @@ export function UserProfile({
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank')
   }
 
-  const topGenres = getTopGenresWithPercentages(tasteProfile, 4)
   const likedMovies = tasteProfile.likedMovies || []
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-4 pt-2 pb-6 overflow-y-auto">
       {/* Profile Header */}
-      <div className="flex items-center gap-3.5 bg-zinc-900 border border-zinc-800 p-4 rounded-3xl mb-4 shadow-lg">
+      <div className="flex items-center gap-3.5 bg-zinc-900 border border-zinc-800 p-4 rounded-3xl mb-5 shadow-lg">
         <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-red-600 to-amber-500 flex items-center justify-center text-3xl shadow-md">
           {tasteProfile.avatar || '🍿'}
         </div>
@@ -113,49 +105,6 @@ export function UserProfile({
             <span className="text-[11px] text-zinc-500">• {tasteProfile.totalSwipes} Film İncelendi</span>
           </div>
         </div>
-      </div>
-
-      {/* Taste Breakdown Box */}
-      <div className="bg-zinc-900 border border-zinc-800 p-4 rounded-3xl mb-5 shadow-lg">
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider">
-            <Sparkles className="w-3.5 h-3.5" />
-            Film Zevk Algoritman
-          </div>
-          {onRetakeColdStart && (
-            <button
-              onClick={onRetakeColdStart}
-              className="text-[11px] text-zinc-400 hover:text-white flex items-center gap-1 cursor-pointer transition-colors"
-              title="30 Film Testini Baştan Çöz"
-            >
-              <RotateCcw className="w-3 h-3" />
-              Testi Yenile
-            </button>
-          )}
-        </div>
-
-        {topGenres.length > 0 ? (
-          <div className="flex flex-col gap-2.5">
-            {topGenres.map((g) => (
-              <div key={g.genreId} className="bg-zinc-950 p-2 rounded-xl border border-zinc-800/80">
-                <div className="flex justify-between text-xs font-bold text-zinc-200 mb-1">
-                  <span>{g.name}</span>
-                  <span className="text-amber-400 font-mono">%{g.percentage}</span>
-                </div>
-                <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full"
-                    style={{ width: `${g.percentage}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-zinc-400 text-center py-2">
-            Daha fazla film kaydırdıkça zevk haritanız burada detaylanacaktır.
-          </p>
-        )}
       </div>
 
       {errorMsg && (

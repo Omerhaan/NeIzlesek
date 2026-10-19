@@ -14,10 +14,12 @@ import {
   getRoomByCode,
 } from './services/supabase'
 import {
-  fetchPopularMovies,
+  fetchFilteredMovies,
   fetchMovieDetails,
   fetchMovieProviders,
   GENRES,
+  type FilterState,
+  DEFAULT_FILTERS,
 } from './services/tmdb'
 import {
   loadTasteProfile,
@@ -33,7 +35,7 @@ export function App() {
 
   const [activeTab, setActiveTab] = useState<NavTab>('match')
   const [room, setRoom] = useState<Room | null>(null)
-  const [selectedGenre, setSelectedGenre] = useState(0)
+  const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS)
   const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [movies, setMovies] = useState<Movie[]>([])
   const [roundNumber, setRoundNumber] = useState(1)
@@ -42,26 +44,25 @@ export function App() {
   const [matchedMovie, setMatchedMovie] = useState<Movie | null>(null)
   const [isMatchOpen, setIsMatchOpen] = useState(false)
 
-  // Load movies from TMDb (with optional append for infinite solo mode)
+  // Load movies from TMDb with comprehensive filters
   const loadMovies = useCallback(
-    async (pageNum: number, genreId: number, append = false, limit = 20) => {
+    async (pageNum: number, currentFilters: FilterState, append = false, limit = 20) => {
       setIsLoading(true)
       try {
         // If genreId is 0 and we are in room or personalized mode, consider user's top genre
-        let effectiveGenre = genreId
-        if (effectiveGenre === 0 && room) {
+        const effectiveFilters: FilterState = { ...currentFilters }
+        if (effectiveFilters.genreId === 0 && room) {
           const topUserGenres = getTopGenreIds(tasteProfile, 1)
           if (topUserGenres.length > 0) {
-            effectiveGenre = topUserGenres[0]
+            effectiveFilters.genreId = topUserGenres[0]
           }
         }
 
-        const fetched = await fetchPopularMovies(pageNum, effectiveGenre)
+        const fetched = await fetchFilteredMovies(pageNum, effectiveFilters)
 
         // Enrich the top 6 movies with streaming providers immediately
-        const sliceCount = limit
         const enriched = await Promise.all(
-          fetched.slice(0, sliceCount).map(async (m, idx) => {
+          fetched.slice(0, limit).map(async (m, idx) => {
             if (idx < 6) {
               const providers = await fetchMovieProviders(m.id)
               return { ...m, providers }
@@ -81,13 +82,13 @@ export function App() {
     [room, tasteProfile]
   )
 
-  // Initialize movies on mount or when genre / room changes
+  // Initialize movies on mount or when filters / room change
   useEffect(() => {
     if (tasteProfile.isOnboarded) {
       const limit = room ? 25 : 20
-      loadMovies(1, selectedGenre, false, limit)
+      loadMovies(1, filters, false, limit)
     }
-  }, [tasteProfile.isOnboarded, room, selectedGenre, loadMovies])
+  }, [tasteProfile.isOnboarded, room, filters, loadMovies])
 
   // Check URL query parameters for ?room=CODE on load
   useEffect(() => {
@@ -124,7 +125,7 @@ export function App() {
     setRoom(newRoom)
     setRoundNumber(1)
     // Curate 25 movies specifically for this room
-    loadMovies(1, selectedGenre, false, 25)
+    loadMovies(1, filters, false, 25)
   }
 
   const handleLeaveRoom = () => {
@@ -132,7 +133,7 @@ export function App() {
     setRoundNumber(1)
     window.history.replaceState({}, '', window.location.pathname)
     // Revert to infinite solo discovery mode
-    loadMovies(1, selectedGenre, false, 20)
+    loadMovies(1, filters, false, 20)
   }
 
   const handleSwipe = async (movie: Movie, action: SwipeAction) => {
@@ -155,19 +156,29 @@ export function App() {
     if (room) {
       // In room mode: load next 25-film round
       setRoundNumber((prev) => prev + 1)
-      loadMovies(nextPage, selectedGenre, false, 25)
+      loadMovies(nextPage, filters, false, 25)
     } else {
       // In solo mode: append more movies seamlessly (infinite feed)
-      loadMovies(nextPage, selectedGenre, true, 20)
+      loadMovies(nextPage, filters, true, 20)
     }
   }
 
-  const handleGenreChange = (genreId: number) => {
-    setSelectedGenre(genreId)
+  const handleApplyFilters = (newFilters: FilterState) => {
+    setFilters(newFilters)
     setRoundNumber(1)
     const limit = room ? 25 : 20
-    loadMovies(1, genreId, false, limit)
+    loadMovies(1, newFilters, false, limit)
   }
+
+  // Calculate active filter count for badge
+  const activeFilterCount =
+    (filters.genreId > 0 ? 1 : 0) +
+    filters.platformIds.length +
+    (filters.yearRange !== 'all' ? 1 : 0) +
+    (filters.minRating > 0 ? 1 : 0)
+
+  const genreName = GENRES.find((g) => g.id === filters.genreId)?.name
+  const headerFilterLabel = filters.genreId > 0 ? genreName : activeFilterCount > 0 ? `Filtreli (${activeFilterCount})` : 'Filtrele'
 
   return (
     <div className="relative w-full h-[100dvh] flex flex-col bg-zinc-950 text-white overflow-hidden">
@@ -177,7 +188,7 @@ export function App() {
           initialProfile={tasteProfile}
           onComplete={(completedProfile) => {
             setTasteProfile(completedProfile)
-            loadMovies(1, selectedGenre, false, 20)
+            loadMovies(1, filters, false, 20)
           }}
         />
       )}
@@ -187,7 +198,8 @@ export function App() {
         roomCode={room ? room.room_code : null}
         onLeaveRoom={room ? handleLeaveRoom : undefined}
         onOpenFilter={activeTab === 'match' ? () => setIsFilterOpen(true) : undefined}
-        selectedGenreName={GENRES.find((g) => g.id === selectedGenre)?.name}
+        selectedGenreName={headerFilterLabel}
+        activeFilterCount={activeFilterCount}
       />
 
       {/* Main Content Area based on Active Tab */}
@@ -201,7 +213,7 @@ export function App() {
               movies={movies}
               onSwipe={handleSwipe}
               onLoadNextRound={handleLoadNextRound}
-              onResetGenre={() => handleGenreChange(0)}
+              onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
               isLoading={isLoading}
               roundNumber={roundNumber}
               roundLimit={25}
@@ -219,7 +231,6 @@ export function App() {
             onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
             onLeaveRoom={handleLeaveRoom}
             onNavigateToMatch={() => setActiveTab('match')}
-            onRetakeColdStart={() => setTasteProfile((prev) => ({ ...prev, isOnboarded: false }))}
           />
         )}
       </main>
@@ -235,8 +246,8 @@ export function App() {
       <FilterModal
         isOpen={isFilterOpen}
         onClose={() => setIsFilterOpen(false)}
-        selectedGenre={selectedGenre}
-        onSelectGenre={handleGenreChange}
+        currentFilters={filters}
+        onApplyFilters={handleApplyFilters}
       />
 
       {/* Match Celebration Modal */}

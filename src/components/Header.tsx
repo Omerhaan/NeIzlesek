@@ -6,6 +6,7 @@ interface HeaderProps {
   onLeaveRoom?: () => void
   onOpenFilter?: () => void
   selectedGenreName?: string
+  activeFilterCount?: number
 }
 
 export function Header({
@@ -13,6 +14,7 @@ export function Header({
   onLeaveRoom,
   onOpenFilter,
   selectedGenreName,
+  activeFilterCount = 0,
 }: HeaderProps) {
   const [copied, setCopied] = useState(false)
 
@@ -35,16 +37,22 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
-        {/* Compact Genre Filter Button */}
+        {/* Compact Filter Button */}
         {onOpenFilter && (
           <button
             onClick={onOpenFilter}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-full text-xs font-semibold text-zinc-300 transition-colors cursor-pointer"
-            title="Film Türü Seç"
+            title="Film Filtreleri"
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-red-500" />
-            <span className="max-w-[70px] truncate">{selectedGenreName || 'Türler'}</span>
-            <ChevronDown className="w-3 h-3 text-zinc-500" />
+            <span className="max-w-[70px] truncate">{selectedGenreName || 'Filtrele'}</span>
+            {activeFilterCount > 0 ? (
+              <span className="w-4 h-4 rounded-full bg-red-600 text-white text-[10px] font-black flex items-center justify-center">
+                {activeFilterCount}
+              </span>
+            ) : (
+              <ChevronDown className="w-3 h-3 text-zinc-500" />
+            )}
           </button>
         )}
 

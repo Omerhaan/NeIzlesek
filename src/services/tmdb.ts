@@ -16,7 +16,41 @@ export const GENRES = [
   { id: 878, name: 'Bilim Kurgu' },
   { id: 53, name: 'Gerilim' },
   { id: 16, name: 'Animasyon' },
+  { id: 12, name: 'Macera' },
+  { id: 80, name: 'Suç' },
+  { id: 9648, name: 'Gizem' },
 ]
+
+export interface StreamingPlatformDef {
+  id: number
+  name: string
+  logo: string
+}
+
+export const POPULAR_PLATFORMS: StreamingPlatformDef[] = [
+  { id: 8, name: 'Netflix', logo: '/pbpMk2JmcoNnQwx5JGpXngfoWtp.jpg' },
+  { id: 119, name: 'Prime Video', logo: '/pvsI0A9r1s5s6n9K8g7Y2W5X1X2.jpg' },
+  { id: 337, name: 'Disney+', logo: '/7rwgQI5a1t9OnRydqywIdyvKyRp.jpg' },
+  { id: 442, name: 'BluTV', logo: '/f5bF1Y1b1y1Y1b1Y1b1Y1b1Y1b1.jpg' },
+  { id: 350, name: 'Apple TV+', logo: '/2E03qsvDCvENQpnbtq4Q964Q2Tr.jpg' },
+  { id: 2235, name: 'tabii', logo: '/8OIs6ZVYbS3auTiW6cWsXE5LTX.png' },
+]
+
+export type YearRange = 'all' | '2020+' | '2010s' | '2000s' | 'classic'
+
+export interface FilterState {
+  genreId: number
+  platformIds: number[]
+  yearRange: YearRange
+  minRating: number // 0, 7.0, 7.5, 8.0
+}
+
+export const DEFAULT_FILTERS: FilterState = {
+  genreId: 0,
+  platformIds: [],
+  yearRange: 'all',
+  minRating: 0,
+}
 
 export async function fetchPopularMovies(page = 1, genreId = 0): Promise<Movie[]> {
   try {
@@ -49,6 +83,62 @@ export async function fetchPopularMovies(page = 1, genreId = 0): Promise<Movie[]
       }))
   } catch (error) {
     console.error('Failed to fetch movies from TMDb:', error)
+    return []
+  }
+}
+
+export async function fetchFilteredMovies(
+  page = 1,
+  filters: FilterState = DEFAULT_FILTERS
+): Promise<Movie[]> {
+  try {
+    let url = `${BASE_URL}/discover/movie?api_key=${TMDB_API_KEY}&language=tr-TR&region=TR&sort_by=popularity.desc&include_adult=false&vote_count.gte=30&page=${page}`
+
+    if (filters.genreId > 0) {
+      url += `&with_genres=${filters.genreId}`
+    }
+
+    if (filters.platformIds && filters.platformIds.length > 0) {
+      url += `&with_watch_providers=${filters.platformIds.join('|')}&watch_region=TR`
+    }
+
+    if (filters.minRating > 0) {
+      url += `&vote_average.gte=${filters.minRating}`
+    }
+
+    if (filters.yearRange === '2020+') {
+      url += `&primary_release_date.gte=2020-01-01`
+    } else if (filters.yearRange === '2010s') {
+      url += `&primary_release_date.gte=2010-01-01&primary_release_date.lte=2019-12-31`
+    } else if (filters.yearRange === '2000s') {
+      url += `&primary_release_date.gte=2000-01-01&primary_release_date.lte=2009-12-31`
+    } else if (filters.yearRange === 'classic') {
+      url += `&primary_release_date.lte=1999-12-31`
+    }
+
+    const res = await fetch(url)
+    if (!res.ok) {
+      throw new Error(`TMDb API error: ${res.statusText}`)
+    }
+
+    const data = await res.json()
+    const rawMovies = data.results || []
+
+    return rawMovies
+      .filter((m: { poster_path: string | null; overview: string }) => m.poster_path && m.overview)
+      .map((m: any) => ({
+        id: m.id,
+        title: m.title || m.original_title,
+        original_title: m.original_title,
+        overview: m.overview,
+        poster_path: m.poster_path,
+        backdrop_path: m.backdrop_path,
+        vote_average: Math.round(m.vote_average * 10) / 10,
+        release_date: m.release_date || '',
+        genre_ids: m.genre_ids || [],
+      }))
+  } catch (error) {
+    console.error('Failed to fetch filtered movies:', error)
     return []
   }
 }
