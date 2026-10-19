@@ -1,0 +1,150 @@
+import { useState } from 'react'
+import { Star, Info, Calendar } from 'lucide-react'
+import type { Movie } from '../types'
+import { IMAGE_BASE_URL, LOGO_BASE_URL } from '../services/tmdb'
+
+interface MovieCardProps {
+  movie: Movie
+  isTopCard: boolean
+  dragOffset: { x: number; y: number }
+  isDragging: boolean
+}
+
+export function MovieCard({
+  movie,
+  isTopCard,
+  dragOffset,
+  isDragging,
+}: MovieCardProps) {
+  const [showDetails, setShowDetails] = useState(false)
+
+  // Compute rotation and translation if it's the top card being dragged
+  const rotation = isTopCard ? (dragOffset.x / 15) : 0
+  const transformStyle = isTopCard
+    ? {
+        transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${rotation}deg)`,
+        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
+      }
+    : {}
+
+  // Drag threshold for stamping feedback
+  const swipeDirection = dragOffset.x > 50 ? 'like' : dragOffset.x < -50 ? 'pass' : null
+
+  const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
+
+  return (
+    <div
+      style={transformStyle}
+      className={`absolute inset-0 w-full h-full rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border border-zinc-800 flex flex-col justify-end select-none pointer-events-auto transition-transform ${
+        isTopCard ? 'z-20 cursor-grab active:cursor-grabbing' : 'z-10 scale-[0.96] -translate-y-3 opacity-80'
+      }`}
+    >
+      {/* Background Poster Image */}
+      <img
+        src={`${IMAGE_BASE_URL}${movie.poster_path}`}
+        alt={movie.title}
+        draggable={false}
+        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+      />
+
+      {/* Subtle top shadow */}
+      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+
+      {/* Bottom Gradient Overlay for readability */}
+      <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black via-black/75 to-transparent pointer-events-none" />
+
+      {/* Swipe Feedback Stamp Badges */}
+      {isTopCard && swipeDirection === 'like' && (
+        <div
+          className="absolute top-10 left-8 border-4 border-emerald-400 text-emerald-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl -rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse"
+          style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
+        >
+          BEĞEN
+        </div>
+      )}
+
+      {isTopCard && swipeDirection === 'pass' && (
+        <div
+          className="absolute top-10 right-8 border-4 border-rose-500 text-rose-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse"
+          style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
+        >
+          PAS
+        </div>
+      )}
+
+      {/* Streaming Platform Badges (Top Right) */}
+      {movie.providers && movie.providers.length > 0 && (
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1.5 rounded-full border border-white/10">
+          {movie.providers.slice(0, 3).map((provider) => (
+            <img
+              key={provider.provider_id}
+              src={`${LOGO_BASE_URL}${provider.logo_path}`}
+              alt={provider.provider_name}
+              title={provider.provider_name}
+              className="w-5 h-5 rounded-md object-cover shadow"
+            />
+          ))}
+          {movie.providers.length > 3 && (
+            <span className="text-[10px] text-zinc-300 font-bold ml-0.5">
+              +{movie.providers.length - 3}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Card Content Footer */}
+      <div className="relative z-10 p-5 pb-6 text-left flex flex-col gap-2 pointer-events-auto">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1">
+            <h2 className="text-2xl font-black tracking-tight text-white leading-tight drop-shadow-md">
+              {movie.title}
+            </h2>
+            {movie.original_title && movie.original_title !== movie.title && (
+              <p className="text-xs text-zinc-400 font-medium italic mt-0.5">
+                {movie.original_title}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setShowDetails((prev) => !prev)
+            }}
+            className="p-2 rounded-full bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-zinc-700"
+            title="Detaylar"
+          >
+            <Info className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Rating and Year Meta */}
+        <div className="flex items-center gap-3 text-xs font-semibold text-zinc-300">
+          <span className="flex items-center gap-1 bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded-md border border-amber-500/30">
+            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+            {movie.vote_average.toFixed(1)}
+          </span>
+
+          {releaseYear && (
+            <span className="flex items-center gap-1 bg-zinc-800/80 text-zinc-300 px-2.5 py-1 rounded-md border border-zinc-700">
+              <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+              {releaseYear}
+            </span>
+          )}
+        </div>
+
+        {/* Overview (expandable or clamped) */}
+        <div className="mt-1">
+          <p
+            className={`text-sm text-zinc-300 leading-relaxed font-normal transition-all duration-200 ${
+              showDetails ? 'max-h-48 overflow-y-auto pr-1' : 'line-clamp-2'
+            }`}
+          >
+            {movie.overview}
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
