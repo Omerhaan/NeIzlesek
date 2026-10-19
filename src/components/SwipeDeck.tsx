@@ -7,11 +7,13 @@ interface SwipeDeckProps {
   movies: Movie[]
   onSwipe: (movie: Movie, action: SwipeAction) => void
   onLoadNextRound: () => void
+  onRoundComplete?: () => void
   onResetGenre?: () => void
   isLoading: boolean
   roundNumber?: number
   roundLimit?: number
   hasRoundLimit?: boolean
+  isRoomMode?: boolean
   totalSwipesCount?: number
 }
 
@@ -19,11 +21,13 @@ export function SwipeDeck({
   movies,
   onSwipe,
   onLoadNextRound,
+  onRoundComplete,
   onResetGenre,
   isLoading,
   roundNumber = 1,
   roundLimit = 25,
   hasRoundLimit = true,
+  isRoomMode = false,
   totalSwipesCount = 0,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(0)
@@ -123,7 +127,18 @@ export function SwipeDeck({
   // Check if round limit reached (only applicable when hasRoundLimit is true)
   const isRoundComplete = hasRoundLimit && (roundIndex >= roundLimit || (movies.length > 0 && roundIndex >= movies.length))
 
+  // If a parent provided onRoundComplete (like Cold Start), trigger it immediately
+  useEffect(() => {
+    if (isRoundComplete && onRoundComplete) {
+      onRoundComplete()
+    }
+  }, [isRoundComplete, onRoundComplete])
+
   if (isRoundComplete) {
+    if (onRoundComplete) {
+      return null // Transitioning to result screen
+    }
+
     return (
       <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
         <div className="w-20 h-20 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mb-5 text-amber-400 shadow-xl shadow-amber-400/10">
@@ -132,9 +147,13 @@ export function SwipeDeck({
         <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 mb-3">
           {roundNumber}. Tur Tamamlandı
         </div>
-        <h3 className="text-2xl font-black text-white mb-2">Henüz Eşleşme Yok</h3>
+        <h3 className="text-2xl font-black text-white mb-2">
+          {isRoomMode ? 'Henüz Eşleşme Yok' : 'Tur Tamamlandı!'}
+        </h3>
         <p className="text-sm text-zinc-400 max-w-xs mb-8 leading-relaxed">
-          Bu turdaki {roundLimit} filmi tamamladınız. Partnerinizle ortak bir filmde buluşmak için yeni bir tur başlatabilirsiniz!
+          {isRoomMode
+            ? `Bu turdaki ${roundLimit} filmi tamamladınız. Partnerinizle ortak bir filmde buluşmak için yeni bir tur başlatabilirsiniz!`
+            : `Bu turdaki ${roundLimit} filmi tamamladınız. Zevkinize uygun yeni filmlerle devam edebilirsiniz!`}
         </p>
 
         <div className="flex flex-col gap-3 w-full max-w-xs">

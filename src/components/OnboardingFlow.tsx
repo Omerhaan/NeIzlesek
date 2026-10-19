@@ -207,9 +207,12 @@ export function OnboardingFlow({ initialProfile, onComplete }: OnboardingFlowPro
             movies={COLD_START_MOVIES}
             onSwipe={handleColdStartSwipe}
             onLoadNextRound={handleColdStartFinished}
+            onRoundComplete={handleColdStartFinished}
             isLoading={false}
             roundNumber={1}
             roundLimit={30}
+            hasRoundLimit={true}
+            isRoomMode={false}
           />
         </div>
       )}

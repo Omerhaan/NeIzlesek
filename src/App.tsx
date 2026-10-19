@@ -206,6 +206,7 @@ export function App() {
               roundNumber={roundNumber}
               roundLimit={25}
               hasRoundLimit={!!room}
+              isRoomMode={!!room}
               totalSwipesCount={tasteProfile.totalSwipes}
             />
           </div>
