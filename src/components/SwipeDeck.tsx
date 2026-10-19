@@ -11,6 +11,8 @@ interface SwipeDeckProps {
   isLoading: boolean
   roundNumber?: number
   roundLimit?: number
+  hasRoundLimit?: boolean
+  totalSwipesCount?: number
 }
 
 export function SwipeDeck({
@@ -20,7 +22,9 @@ export function SwipeDeck({
   onResetGenre,
   isLoading,
   roundNumber = 1,
-  roundLimit = 20,
+  roundLimit = 25,
+  hasRoundLimit = true,
+  totalSwipesCount = 0,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(0)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -28,6 +32,13 @@ export function SwipeDeck({
 
   const startPos = useRef({ x: 0, y: 0 })
   const isPointerDown = useRef(false)
+
+  // In infinite mode (no round limit), auto-load more movies when nearing end
+  useEffect(() => {
+    if (!hasRoundLimit && movies.length - roundIndex < 4 && !isLoading) {
+      onLoadNextRound()
+    }
+  }, [hasRoundLimit, movies.length, roundIndex, isLoading, onLoadNextRound])
 
   const triggerSwipe = useCallback(
     (action: SwipeAction) => {
@@ -61,7 +72,7 @@ export function SwipeDeck({
         return
       }
 
-      if (roundIndex >= roundLimit || !movies[roundIndex]) return
+      if ((hasRoundLimit && roundIndex >= roundLimit) || !movies[roundIndex]) return
 
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
@@ -77,7 +88,7 @@ export function SwipeDeck({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [triggerSwipe, roundIndex, roundLimit, movies])
+  }, [triggerSwipe, roundIndex, roundLimit, hasRoundLimit, movies])
 
   // Touch & Mouse Handlers
   const handleStart = (clientX: number, clientY: number) => {
@@ -109,8 +120,8 @@ export function SwipeDeck({
     }
   }
 
-  // Check if round limit reached
-  const isRoundComplete = roundIndex >= roundLimit || (movies.length > 0 && roundIndex >= movies.length)
+  // Check if round limit reached (only applicable when hasRoundLimit is true)
+  const isRoundComplete = hasRoundLimit && (roundIndex >= roundLimit || (movies.length > 0 && roundIndex >= movies.length))
 
   if (isRoundComplete) {
     return (
@@ -175,18 +186,32 @@ export function SwipeDeck({
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col justify-between px-4 pb-4 overflow-hidden">
-      {/* Top Round Progress Bar */}
-      <div className="w-full py-2 flex flex-col gap-1.5 z-10">
-        <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-          <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
-          <span className="text-white font-mono">{currentCount} / {roundLimit}</span>
-        </div>
-        <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
+      {/* Top Round Progress Bar or Solo Discovery Indicator */}
+      <div className="w-full py-1.5 flex flex-col gap-1.5 z-10">
+        {hasRoundLimit ? (
+          <>
+            <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
+              <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
+              <span className="text-white font-mono">{currentCount} / {roundLimit}</span>
+            </div>
+            <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full transition-all duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </>
+        ) : (
+          <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
+            <span className="inline-flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Sınırsız Keşif
+            </span>
+            <span className="text-zinc-400 text-[11px] font-medium">
+              🍿 <strong className="text-white">{totalSwipesCount + roundIndex}</strong> film incelendi
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Card Stack Area */}

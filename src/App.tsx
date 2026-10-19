@@ -5,6 +5,7 @@ import { MatchModal } from './components/MatchModal'
 import { FilterModal } from './components/FilterModal'
 import { NewsFeed } from './components/NewsFeed'
 import { UserProfile } from './components/UserProfile'
+import { OnboardingFlow } from './components/OnboardingFlow'
 import { BottomNav, type NavTab } from './components/BottomNav'
 import {
   getOrCreateUserId,
@@ -18,9 +19,18 @@ import {
   fetchMovieProviders,
   GENRES,
 } from './services/tmdb'
+import {
+  loadTasteProfile,
+  updateTasteWithSwipe,
+  getTopGenreIds,
+  type TasteProfile,
+} from './services/tasteProfile'
 import type { Movie, Room, SwipeAction } from './types'
 
 export function App() {
+  const userId = useRef(getOrCreateUserId()).current
+  const [tasteProfile, setTasteProfile] = useState<TasteProfile>(() => loadTasteProfile(userId))
+
   const [activeTab, setActiveTab] = useState<NavTab>('match')
   const [room, setRoom] = useState<Room | null>(null)
   const [selectedGenre, setSelectedGenre] = useState(0)
@@ -31,20 +41,27 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [matchedMovie, setMatchedMovie] = useState<Movie | null>(null)
   const [isMatchOpen, setIsMatchOpen] = useState(false)
-  const [likedMovies, setLikedMovies] = useState<Movie[]>([])
 
-  const userId = useRef(getOrCreateUserId()).current
-
-  // Load a batch of 20 movies for the round
-  const loadRoundMovies = useCallback(
-    async (pageNum: number, genreId: number) => {
+  // Load movies from TMDb (with optional append for infinite solo mode)
+  const loadMovies = useCallback(
+    async (pageNum: number, genreId: number, append = false, limit = 20) => {
       setIsLoading(true)
       try {
-        const fetched = await fetchPopularMovies(pageNum, genreId)
+        // If genreId is 0 and we are in room or personalized mode, consider user's top genre
+        let effectiveGenre = genreId
+        if (effectiveGenre === 0 && room) {
+          const topUserGenres = getTopGenreIds(tasteProfile, 1)
+          if (topUserGenres.length > 0) {
+            effectiveGenre = topUserGenres[0]
+          }
+        }
+
+        const fetched = await fetchPopularMovies(pageNum, effectiveGenre)
 
         // Enrich the top 6 movies with streaming providers immediately
+        const sliceCount = limit
         const enriched = await Promise.all(
-          fetched.slice(0, 20).map(async (m, idx) => {
+          fetched.slice(0, sliceCount).map(async (m, idx) => {
             if (idx < 6) {
               const providers = await fetchMovieProviders(m.id)
               return { ...m, providers }
@@ -53,7 +70,7 @@ export function App() {
           })
         )
 
-        setMovies(enriched)
+        setMovies((prev) => (append ? [...prev, ...enriched] : enriched))
         setPage(pageNum)
       } catch (err) {
         console.error('Failed to load movies:', err)
@@ -61,13 +78,16 @@ export function App() {
         setIsLoading(false)
       }
     },
-    []
+    [room, tasteProfile]
   )
 
-  // Initialize movies on mount
+  // Initialize movies on mount or when genre / room changes
   useEffect(() => {
-    loadRoundMovies(1, selectedGenre)
-  }, [loadRoundMovies, selectedGenre])
+    if (tasteProfile.isOnboarded) {
+      const limit = room ? 25 : 20
+      loadMovies(1, selectedGenre, false, limit)
+    }
+  }, [tasteProfile.isOnboarded, room, selectedGenre, loadMovies])
 
   // Check URL query parameters for ?room=CODE on load
   useEffect(() => {
@@ -102,21 +122,25 @@ export function App() {
 
   const handleRoomCreatedOrJoined = (newRoom: Room) => {
     setRoom(newRoom)
+    setRoundNumber(1)
+    // Curate 25 movies specifically for this room
+    loadMovies(1, selectedGenre, false, 25)
   }
 
   const handleLeaveRoom = () => {
     setRoom(null)
+    setRoundNumber(1)
     window.history.replaceState({}, '', window.location.pathname)
+    // Revert to infinite solo discovery mode
+    loadMovies(1, selectedGenre, false, 20)
   }
 
   const handleSwipe = async (movie: Movie, action: SwipeAction) => {
-    if (action === 'like') {
-      setLikedMovies((prev) => {
-        if (prev.some((m) => m.id === movie.id)) return prev
-        return [movie, ...prev]
-      })
-    }
+    // Dynamically learn from swipe and update taste profile
+    const updated = updateTasteWithSwipe(tasteProfile, movie, action)
+    setTasteProfile(updated)
 
+    // If active in a room, record to Supabase
     if (room) {
       try {
         await recordSwipe(room.id, userId, movie.id, action)
@@ -128,18 +152,36 @@ export function App() {
 
   const handleLoadNextRound = () => {
     const nextPage = page + 1
-    setRoundNumber((prev) => prev + 1)
-    loadRoundMovies(nextPage, selectedGenre)
+    if (room) {
+      // In room mode: load next 25-film round
+      setRoundNumber((prev) => prev + 1)
+      loadMovies(nextPage, selectedGenre, false, 25)
+    } else {
+      // In solo mode: append more movies seamlessly (infinite feed)
+      loadMovies(nextPage, selectedGenre, true, 20)
+    }
   }
 
   const handleGenreChange = (genreId: number) => {
     setSelectedGenre(genreId)
     setRoundNumber(1)
-    loadRoundMovies(1, genreId)
+    const limit = room ? 25 : 20
+    loadMovies(1, genreId, false, limit)
   }
 
   return (
     <div className="relative w-full h-[100dvh] flex flex-col bg-zinc-950 text-white overflow-hidden">
+      {/* Onboarding Flow (shown on first launch or when test is reset) */}
+      {!tasteProfile.isOnboarded && (
+        <OnboardingFlow
+          initialProfile={tasteProfile}
+          onComplete={(completedProfile) => {
+            setTasteProfile(completedProfile)
+            loadMovies(1, selectedGenre, false, 20)
+          }}
+        />
+      )}
+
       {/* App Header */}
       <Header
         roomCode={room ? room.room_code : null}
@@ -154,7 +196,7 @@ export function App() {
 
         {activeTab === 'match' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Swipe Deck with 20 Card Limit & Centered 3 Buttons */}
+            {/* Swipe Deck with infinite solo mode or 25-film room limit */}
             <SwipeDeck
               movies={movies}
               onSwipe={handleSwipe}
@@ -162,19 +204,21 @@ export function App() {
               onResetGenre={() => handleGenreChange(0)}
               isLoading={isLoading}
               roundNumber={roundNumber}
-              roundLimit={20}
+              roundLimit={25}
+              hasRoundLimit={!!room}
+              totalSwipesCount={tasteProfile.totalSwipes}
             />
           </div>
         )}
 
         {activeTab === 'profile' && (
           <UserProfile
-            userId={userId}
+            tasteProfile={tasteProfile}
             activeRoom={room}
             onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
             onLeaveRoom={handleLeaveRoom}
             onNavigateToMatch={() => setActiveTab('match')}
-            likedMovies={likedMovies}
+            onRetakeColdStart={() => setTasteProfile((prev) => ({ ...prev, isOnboarded: false }))}
           />
         )}
       </main>
