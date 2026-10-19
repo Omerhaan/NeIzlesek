@@ -102,3 +102,54 @@ export async function fetchMovieDetails(movieId: number): Promise<Movie | null> 
     return null
   }
 }
+
+export async function fetchNowPlayingMovies(): Promise<Movie[]> {
+  try {
+    const url = `${BASE_URL}/movie/now_playing?api_key=${TMDB_API_KEY}&language=tr-TR&region=TR&page=1`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.results || [])
+      .filter((m: any) => m.poster_path && m.overview)
+      .map((m: any) => ({
+        id: m.id,
+        title: m.title || m.original_title,
+        original_title: m.original_title,
+        overview: m.overview,
+        poster_path: m.poster_path,
+        backdrop_path: m.backdrop_path,
+        vote_average: Math.round(m.vote_average * 10) / 10,
+        release_date: m.release_date || '',
+        genre_ids: m.genre_ids || [],
+      }))
+  } catch (err) {
+    console.error('Failed to fetch now playing movies:', err)
+    return []
+  }
+}
+
+export async function fetchUpcomingMovies(): Promise<Movie[]> {
+  try {
+    const url = `${BASE_URL}/movie/upcoming?api_key=${TMDB_API_KEY}&language=tr-TR&region=TR&page=1`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.results || [])
+      .filter((m: any) => m.poster_path && m.overview)
+      .map((m: any) => ({
+        id: m.id,
+        title: m.title || m.original_title,
+        original_title: m.original_title,
+        overview: m.overview,
+        poster_path: m.poster_path,
+        backdrop_path: m.backdrop_path,
+        vote_average: Math.round(m.vote_average * 10) / 10,
+        release_date: m.release_date || '',
+        genre_ids: m.genre_ids || [],
+      }))
+  } catch (err) {
+    console.error('Failed to fetch upcoming movies:', err)
+    return []
+  }
+}
+
