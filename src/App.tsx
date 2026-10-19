@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Header } from './components/Header'
 import { SwipeDeck } from './components/SwipeDeck'
 import { MatchModal } from './components/MatchModal'
+import { FilterModal } from './components/FilterModal'
 import { NewsFeed } from './components/NewsFeed'
 import { UserProfile } from './components/UserProfile'
 import { BottomNav, type NavTab } from './components/BottomNav'
@@ -23,6 +24,7 @@ export function App() {
   const [activeTab, setActiveTab] = useState<NavTab>('match')
   const [room, setRoom] = useState<Room | null>(null)
   const [selectedGenre, setSelectedGenre] = useState(0)
+  const [isFilterOpen, setIsFilterOpen] = useState(false)
   const [movies, setMovies] = useState<Movie[]>([])
   const [roundNumber, setRoundNumber] = useState(1)
   const [page, setPage] = useState(1)
@@ -142,6 +144,8 @@ export function App() {
       <Header
         roomCode={room ? room.room_code : null}
         onLeaveRoom={room ? handleLeaveRoom : undefined}
+        onOpenFilter={activeTab === 'match' ? () => setIsFilterOpen(true) : undefined}
+        selectedGenreName={GENRES.find((g) => g.id === selectedGenre)?.name}
       />
 
       {/* Main Content Area based on Active Tab */}
@@ -150,23 +154,6 @@ export function App() {
 
         {activeTab === 'match' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Genre Filter Bar in Match View */}
-            <div className="w-full max-w-md mx-auto px-4 pt-1 pb-2 flex gap-1.5 overflow-x-auto scrollbar-none z-10">
-              {GENRES.map((g) => (
-                <button
-                  key={g.id}
-                  onClick={() => handleGenreChange(g.id)}
-                  className={`px-3 py-1 rounded-full text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer border ${
-                    selectedGenre === g.id
-                      ? 'bg-red-600 text-white border-red-500 shadow-sm'
-                      : 'bg-zinc-900/90 text-zinc-400 border-zinc-800 hover:text-white'
-                  }`}
-                >
-                  {g.name}
-                </button>
-              ))}
-            </div>
-
             {/* Swipe Deck with 20 Card Limit & Centered 3 Buttons */}
             <SwipeDeck
               movies={movies}
@@ -197,6 +184,14 @@ export function App() {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         hasActiveRoom={!!room}
+      />
+
+      {/* Filter Modal */}
+      <FilterModal
+        isOpen={isFilterOpen}
+        onClose={() => setIsFilterOpen(false)}
+        selectedGenre={selectedGenre}
+        onSelectGenre={handleGenreChange}
       />
 
       {/* Match Celebration Modal */}
