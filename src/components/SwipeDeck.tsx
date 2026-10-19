@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { X, Heart, Eye, RotateCcw, Sparkles } from 'lucide-react'
 import type { Movie, SwipeAction } from '../types'
 import { MovieCard } from './MovieCard'
@@ -51,6 +51,33 @@ export function SwipeDeck({
     },
     [roundIndex, movies, onSwipe]
   )
+
+  // Keyboard Arrow Keys Navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input or textarea
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return
+      }
+
+      if (roundIndex >= roundLimit || !movies[roundIndex]) return
+
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        triggerSwipe('pass')
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        triggerSwipe('like')
+      } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        triggerSwipe('watched')
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [triggerSwipe, roundIndex, roundLimit, movies])
 
   // Touch & Mouse Handlers
   const handleStart = (clientX: number, clientY: number) => {
@@ -225,6 +252,19 @@ export function SwipeDeck({
         >
           <Heart className="w-7 h-7 fill-emerald-400 text-emerald-400" />
         </button>
+      </div>
+
+      {/* Keyboard Shortcut Hints (Desktop) */}
+      <div className="flex items-center justify-center gap-8 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
+        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
+          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">←</kbd> Pas
+        </span>
+        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
+          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">↓ / ↑</kbd> İzledim
+        </span>
+        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
+          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">→</kbd> Beğen
+        </span>
       </div>
     </div>
   )
