@@ -239,8 +239,13 @@ export function App() {
       room.id,
       roundNumber,
       userId,
-      () => {
-        // Automatic matches are presented only in the end-of-round results flow.
+      async (matchedMovieId) => {
+        const details = await fetchMovieDetails(matchedMovieId)
+        if (details) {
+          setMatchedMovie(details)
+          setIsMatchOpen(true)
+          setIsFallbackOpen(false)
+        }
       },
       (vetoedMovieId, vetoUserId) => {
         if (vetoUserId !== userId) {
@@ -264,9 +269,25 @@ export function App() {
         setRoom({ ...room, round_number: incomingRound, room_deck: deckIds })
         setIsLoading(true)
         try {
-          const details = await Promise.all(deckIds.map((id) => fetchMovieDetails(id)))
+          const details = await Promise.all(
+            deckIds.map(async (id) => {
+              const movie = await fetchMovieDetails(id, false)
+              if (movie) return movie
+              const retry = await fetchMovieDetails(id, false)
+              return (retry || {
+                id,
+                title: `Film #${id}`,
+                overview: '',
+                poster_path: null,
+                backdrop_path: null,
+                vote_average: 7.5,
+                release_date: '',
+                genre_ids: [],
+              }) as Movie
+            })
+          )
           if (roundNumberRef.current === incomingRound) {
-            setMovies(details.filter((movie): movie is Movie => movie !== null))
+            setMovies(details)
           }
         } finally {
           if (roundNumberRef.current === incomingRound) setIsLoading(false)
@@ -329,10 +350,26 @@ export function App() {
       setIsLoading(true)
       try {
         const details = await Promise.all(
-          newRoom.room_deck.map((id) => fetchMovieDetails(id))
+          newRoom.room_deck.map(async (id) => {
+            const movie = await fetchMovieDetails(id, false)
+            if (movie) return movie
+            // Retry once if network dropped
+            const retry = await fetchMovieDetails(id, false)
+            if (retry) return retry
+            // Guaranteed fallback so deck size is NEVER reduced below 25
+            return {
+              id,
+              title: `Film #${id}`,
+              overview: 'Film detayları yükleniyor...',
+              poster_path: null,
+              backdrop_path: null,
+              vote_average: 7.5,
+              release_date: '',
+              genre_ids: [],
+            } as Movie
+          })
         )
-        const valid = details.filter((m): m is Movie => m !== null)
-        setMovies(valid)
+        setMovies(details)
       } catch (err) {
         console.error('Error loading room deck:', err)
       } finally {

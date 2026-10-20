@@ -227,10 +227,20 @@ export function SwipeDeck({
             </span>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500 mb-4">
             <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-400" />
             <span>Her iki taraf da bitirdiğinde sonuçlar açılacak</span>
           </div>
+
+          {/* Quick unlock button if partner reached at least 24 films or to resolve edge cases */}
+          {partnerSwipesCount >= effectiveLimit - 1 && onOpenFallback && (
+            <button
+              onClick={onOpenFallback}
+              className="py-2.5 px-4 bg-zinc-800 hover:bg-zinc-700 text-amber-400 hover:text-amber-300 font-bold text-xs rounded-xl border border-amber-500/30 transition-all cursor-pointer shadow-md"
+            >
+              Sonuçları ve Alternatifleri Aç →
+            </button>
+          )}
         </div>
       )
     }
