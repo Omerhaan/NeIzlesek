@@ -80,39 +80,71 @@ export async function recordSwipe(
   action: SwipeAction,
   roundNumber: number
 ): Promise<void> {
-  try {
-    const { error } = await supabase.from('room_swipes').insert([
-      {
-        room_id: roomId,
-        user_name: userId,
-        movie_id: movieId,
-        action: action,
-        round_number: roundNumber,
-      },
-    ])
+  const payload = {
+    room_id: roomId,
+    user_name: userId,
+    movie_id: movieId,
+    action,
+    round_number: roundNumber,
+  }
 
-    if (error) {
-      console.error('Error recording swipe:', error)
+  let saved = false
+  let lastError: unknown
+  for (let attempt = 0; attempt < 3 && !saved; attempt += 1) {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000)
+    try {
+      const { error } = await supabase.from('room_swipes').upsert(payload, {
+        onConflict: 'room_id,user_name,movie_id,round_number',
+        ignoreDuplicates: true,
+      }).abortSignal(controller.signal)
+      if (error) throw error
+      saved = true
+    } catch (error) {
+      lastError = error
+      if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt))
+    } finally {
+      clearTimeout(timeoutId)
     }
+  }
 
-    // If action is 'like', check if partner also liked this movie as a fail-safe backup to DB trigger
-    if (action === 'like') {
-      const { data: partnerLikes } = await supabase
+  if (!saved) {
+    const message = lastError instanceof Error ? lastError.message : 'Bilinmeyen Supabase hatası'
+    throw new Error(`Swipe kaydedilemedi: ${message}`)
+  }
+
+  // The SQL trigger is authoritative; this query is only a best-effort backup.
+  if (action === 'like') {
+    // Do not hold up the deck on this redundant check: the database trigger
+    // already handles matching, and a slow read must never freeze card progress.
+    void Promise.resolve(
+      supabase
         .from('room_swipes')
         .select('id, user_name')
         .eq('room_id', roomId)
         .eq('movie_id', movieId)
+        .eq('round_number', roundNumber)
         .eq('action', 'like')
         .neq('user_name', userId)
         .limit(1)
-
-      if (partnerLikes && partnerLikes.length > 0) {
-        await setRoomMatchedMovie(roomId, movieId)
-      }
-    }
-  } catch (err) {
-    console.error('Record swipe exception:', err)
+        .then(({ data, error }) => {
+          if (!error && data?.length) return setRoomMatchedMovie(roomId, movieId)
+        })
+    )
+      .catch((error) => console.error('Optional match backup check failed:', error))
   }
+}
+
+export async function fetchRoomVetoedMovieIds(roomId: string, roundNumber: number): Promise<number[]> {
+  const { data, error } = await supabase
+    .from('room_swipes')
+    .select('movie_id')
+    .eq('room_id', roomId)
+    .eq('round_number', roundNumber)
+    .eq('action', 'veto')
+
+  if (error) throw new Error(`Veto edilen filmler alınamadı: ${error.message}`)
+  return Array.from(new Set((data ?? []).map((row) => row.movie_id)))
 }
 
 // Save the curated 25 movie IDs for the room so both devices get identical movies
@@ -126,6 +158,60 @@ export async function setRoomDeck(roomId: string, movieIds: number[]): Promise<n
   const result = Array.isArray(data) ? data[0] : data
   if (!result?.room_deck) throw new Error('Room deck initialization returned no deck')
   return result.room_deck as number[]
+}
+
+// Each participant keeps a private-to-the-room movie queue; room_deck is legacy only.
+export async function getRoomUserDeck(roomId: string, userId: string, roundNumber: number): Promise<number[] | null> {
+  const { data, error } = await supabase.from('room_user_decks').select('movie_ids')
+    .eq('room_id', roomId).eq('user_id', userId).eq('round_number', roundNumber).maybeSingle()
+  if (error) throw new Error(`Kişisel oda destesi alınamadı: ${error.message}`)
+  return data?.movie_ids ?? null
+}
+
+export async function saveRoomUserDeck(roomId: string, userId: string, roundNumber: number, movieIds: number[]): Promise<number[]> {
+  const { data, error } = await supabase.from('room_user_decks')
+    .upsert({ room_id: roomId, user_id: userId, round_number: roundNumber, movie_ids: movieIds },
+      { onConflict: 'room_id,user_id,round_number', ignoreDuplicates: true })
+    .select('movie_ids').maybeSingle()
+  if (error) throw new Error(`Kişisel oda destesi kaydedilemedi: ${error.message}`)
+  if (data?.movie_ids) return data.movie_ids
+  const saved = await getRoomUserDeck(roomId, userId, roundNumber)
+  if (!saved) throw new Error('Kişisel oda destesi kaydedildi ancak geri okunamadı.')
+  return saved
+}
+
+export async function saveRoomParticipantTaste(roomId: string, userId: string, genreScores: Record<number, number>, watchedIds: number[]): Promise<void> {
+  const { error } = await supabase.from('room_participant_tastes').upsert({
+    room_id: roomId, user_id: userId, genre_scores: genreScores, watched_movie_ids: watchedIds,
+  }, { onConflict: 'room_id,user_id' })
+  if (error) throw new Error(`Oda zevk profili kaydedilemedi: ${error.message}`)
+}
+
+export async function fetchRoomUsedMovieIds(roomId: string, userId: string): Promise<number[]> {
+  const { data, error } = await supabase.from('room_swipes').select('movie_id')
+    .eq('room_id', roomId).eq('user_name', userId)
+  if (error) throw new Error(`Odada daha önce görülen filmler alınamadı: ${error.message}`)
+  return Array.from(new Set((data ?? []).map((row) => row.movie_id)))
+}
+
+export async function fetchRoomSharedTasteGenres(roomId: string): Promise<number[]> {
+  const { data, error } = await supabase.from('room_participant_tastes').select('genre_scores')
+    .eq('room_id', roomId).limit(2)
+  if (error) throw new Error(`Ortak zevk profili alınamadı: ${error.message}`)
+  if (!data || data.length < 2) return []
+  const [first, second] = data.map((row) => row.genre_scores as Record<string, number>)
+  const normalize = (scores: Record<string, number>) => {
+    const max = Math.max(1, ...Object.values(scores).map((score) => Math.max(0, Number(score) || 0)))
+    return new Map(Object.entries(scores).map(([id, score]) => [Number(id), Math.max(0, Number(score) || 0) / max]))
+  }
+  const a = normalize(first ?? {})
+  const b = normalize(second ?? {})
+  return Array.from(a.keys())
+    .map((id) => [id, Math.sqrt((a.get(id) ?? 0) * (b.get(id) ?? 0))] as const)
+    .filter(([, score]) => score > 0)
+    .sort((x, y) => y[1] - x[1])
+    .slice(0, 3)
+    .map(([id]) => id)
 }
 
 export async function advanceRoomRound(
@@ -153,31 +239,27 @@ export async function fetchRoomSwipesCount(
   myUserId: string,
   roundNumber: number
 ): Promise<{ myCount: number; partnerCount: number }> {
-  try {
-    const { data, error } = await supabase
-      .from('room_swipes')
-      .select('user_name, movie_id')
-      .eq('room_id', roomId)
-      .eq('round_number', roundNumber)
+  const { data, error } = await supabase
+    .from('room_swipes')
+    .select('user_name, movie_id')
+    .eq('room_id', roomId)
+    .eq('round_number', roundNumber)
 
-    if (error || !data) return { myCount: 0, partnerCount: 0 }
+  if (error) throw new Error(`Swipe ilerlemesi alınamadı: ${error.message}`)
+  if (!data) throw new Error('Swipe ilerlemesi boş yanıt döndürdü')
 
-    const myMovies = new Set<number>()
-    const partnerMovies = new Set<number>()
+  const myMovies = new Set<number>()
+  const partnerMovies = new Set<number>()
 
-    for (const row of data) {
-      if (row.user_name === myUserId) {
-        myMovies.add(row.movie_id)
-      } else if (row.user_name) {
-        partnerMovies.add(row.movie_id)
-      }
+  for (const row of data) {
+    if (row.user_name === myUserId) {
+      myMovies.add(row.movie_id)
+    } else if (row.user_name) {
+      partnerMovies.add(row.movie_id)
     }
-
-    return { myCount: myMovies.size, partnerCount: partnerMovies.size }
-  } catch (err) {
-    console.error('Failed to fetch room swipes count:', err)
-    return { myCount: 0, partnerCount: 0 }
   }
+
+  return { myCount: myMovies.size, partnerCount: partnerMovies.size }
 }
 
 // Fetch un-vetoed, most liked candidate movie IDs for fallback matching
@@ -292,7 +374,7 @@ export function subscribeToRoom(
   onMatch: (matchedMovieId: number) => void,
   onVeto?: (vetoedMovieId: number, vetoUserId: string) => void,
   onPartnerSwiped?: (partnerSwipeCount: number) => void,
-  onRoundChanged?: (round: number, deck: number[]) => void
+  onRoundChanged?: (round: number) => void
 ) {
   let notifiedMatchId: number | null = null
   const notifyMatchOnce = (movieId: number) => {
@@ -317,8 +399,8 @@ export function subscribeToRoom(
         if (newRecord.status === 'matched' && newRecord.matched_movie_id) {
           notifyMatchOnce(newRecord.matched_movie_id)
         }
-        if (newRecord.round_number && newRecord.round_number > roundNumber && newRecord.room_deck?.length) {
-          onRoundChanged?.(newRecord.round_number, newRecord.room_deck)
+        if (newRecord.round_number && newRecord.round_number > roundNumber) {
+          onRoundChanged?.(newRecord.round_number)
         }
       }
     )
@@ -343,7 +425,7 @@ export function subscribeToRoom(
             if (onPartnerSwiped) {
               void fetchRoomSwipesCount(roomId, myUserId, roundNumber).then(({ partnerCount }) => {
                 onPartnerSwiped(partnerCount)
-              })
+              }).catch((error) => console.error('Failed to refresh partner progress:', error))
             }
           }
         }
@@ -356,15 +438,15 @@ export function subscribeToRoom(
     try {
       const { data } = await supabase
         .from('match_rooms')
-        .select('status, matched_movie_id, round_number, room_deck')
+        .select('status, matched_movie_id, round_number')
         .eq('id', roomId)
         .single()
 
       if (data && data.status === 'matched' && data.matched_movie_id) {
         notifyMatchOnce(data.matched_movie_id)
       }
-      if (data?.round_number && data.round_number > roundNumber && data.room_deck?.length) {
-        onRoundChanged?.(data.round_number, data.room_deck)
+      if (data?.round_number && data.round_number > roundNumber) {
+        onRoundChanged?.(data.round_number)
       }
 
       // Sync exact partner swipes count periodically

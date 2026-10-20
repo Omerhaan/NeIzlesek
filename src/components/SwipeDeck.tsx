@@ -6,7 +6,7 @@ import { MovieCard } from './MovieCard'
 
 interface SwipeDeckProps {
   movies: Movie[]
-  onSwipe: (movie: Movie, action: SwipeAction) => void
+  onSwipe: (movie: Movie, action: SwipeAction) => void | boolean | Promise<void | boolean>
   onLoadNextRound: () => void
   onRoundComplete?: () => void
   onResetGenre?: () => void
@@ -20,6 +20,7 @@ interface SwipeDeckProps {
   onOpenFallback?: () => void
   partnerSwipesCount?: number
   initialIndex?: number
+  vetoedMovieIds?: Set<number>
 }
 
 export function SwipeDeck({
@@ -38,6 +39,7 @@ export function SwipeDeck({
   onOpenFallback,
   partnerSwipesCount,
   initialIndex = 0,
+  vetoedMovieIds,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(initialIndex)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -95,7 +97,7 @@ export function SwipeDeck({
   const triggerSwipe = useCallback(
     (action: SwipeAction) => {
       const currentMovie = movies[roundIndex]
-      if (!currentMovie || swipeInProgress.current) return
+      if (!currentMovie || isLoading || swipeInProgress.current) return
       swipeInProgress.current = true
 
       // Set target offset for exit animation
@@ -111,13 +113,39 @@ export function SwipeDeck({
       }
 
       setTimeout(() => {
-        onSwipe(currentMovie, action)
-        setRoundIndex((prev) => prev + 1)
-        setDragOffset({ x: 0, y: 0 })
+        void Promise.resolve(onSwipe(currentMovie, action)).then((saved) => {
+          if (saved === false) {
+            if (action === 'veto') setRemainingVetoes((prev) => Math.min(3, prev + 1))
+            swipeInProgress.current = false
+            setDragOffset({ x: 0, y: 0 })
+            return
+          }
+          setRoundIndex((prev) => prev + 1)
+          setDragOffset({ x: 0, y: 0 })
+        }).catch(() => {
+          if (action === 'veto') setRemainingVetoes((prev) => Math.min(3, prev + 1))
+          swipeInProgress.current = false
+          setDragOffset({ x: 0, y: 0 })
+        })
       }, 250)
     },
-    [roundIndex, movies, onSwipe]
+    [roundIndex, movies, onSwipe, isLoading]
   )
+
+  // A partner veto marks a slot as already resolved. Keep the canonical deck
+  // intact and pass that slot locally so both devices retain the same 25-card limit.
+  useEffect(() => {
+    const currentMovie = movies[roundIndex]
+    if (
+      isRoomMode &&
+      !isLoading &&
+      currentMovie &&
+      vetoedMovieIds?.has(currentMovie.id) &&
+      !swipeInProgress.current
+    ) {
+      triggerSwipe('pass')
+    }
+  }, [isRoomMode, isLoading, movies, roundIndex, vetoedMovieIds, triggerSwipe])
 
   const handleVetoClick = useCallback(() => {
     if (remainingVetoes <= 0) return
@@ -200,8 +228,8 @@ export function SwipeDeck({
       !hasAutoOpenedFallback.current &&
       onOpenFallback
     ) {
-      hasAutoOpenedFallback.current = true
       const timer = setTimeout(() => {
+        hasAutoOpenedFallback.current = true
         onOpenFallback()
       }, 700)
       return () => clearTimeout(timer)

@@ -15,9 +15,13 @@ import {
   recordSwipe,
   subscribeToRoom,
   getRoomByCode,
-  setRoomDeck,
+  getRoomUserDeck,
+  saveRoomUserDeck,
+  saveRoomParticipantTaste,
+  fetchRoomUsedMovieIds,
   advanceRoomRound,
   fetchRoomSwipesCount,
+  fetchRoomVetoedMovieIds,
 } from './services/supabase'
 import {
   fetchFilteredMovies,
@@ -38,43 +42,68 @@ import type { Movie, Room, SwipeAction } from './types'
 
 const ROOM_DECK_SIZE = 25
 
-async function fetchRoomDeck(startPage: number, filters: FilterState): Promise<{ movies: Movie[]; nextPage: number }> {
-  const movies: Movie[] = []
-  const seenIds = new Set<number>()
-  let page = startPage
-  let pagesScanned = 0
-
-  // 1. Scan up to 6 TMDb pages to gather 25 unique movies matching user's filters
-  while (movies.length < ROOM_DECK_SIZE && pagesScanned < 6) {
-    const batch = await fetchFilteredMovies(page, filters)
-    if (batch.length === 0) break
-    for (const movie of batch) {
-      if (seenIds.has(movie.id)) continue
-      seenIds.add(movie.id)
-      movies.push(movie)
-      if (movies.length >= ROOM_DECK_SIZE) break
-    }
-    page += 1
-    pagesScanned += 1
+function roomMoviePlaceholder(id: number): Movie {
+  return {
+    id,
+    title: `Film #${id}`,
+    original_title: `Film #${id}`,
+    overview: 'Film detayları şu anda yüklenemedi.',
+    poster_path: null,
+    backdrop_path: null,
+    vote_average: 7.5,
+    release_date: '',
+    genre_ids: [],
   }
+}
 
-  // 2. Fallback: If strict filters yielded fewer than 25 movies, guarantee deck size with top popular movies
-  if (movies.length < ROOM_DECK_SIZE) {
-    let fallbackPage = 1
-    while (movies.length < ROOM_DECK_SIZE && fallbackPage <= 3) {
-      const fallbackBatch = await fetchPopularMovies(fallbackPage, filters.genreId)
-      if (!fallbackBatch || fallbackBatch.length === 0) break
-      for (const movie of fallbackBatch) {
-        if (seenIds.has(movie.id)) continue
-        seenIds.add(movie.id)
-        movies.push(movie)
-        if (movies.length >= ROOM_DECK_SIZE) break
+async function fetchRoomMovies(movieIds: number[]): Promise<Movie[]> {
+  const movies = new Array<Movie>(movieIds.length)
+  let nextIndex = 0
+  const worker = async () => {
+    while (nextIndex < movieIds.length) {
+      const index = nextIndex
+      nextIndex += 1
+      const id = movieIds[index]
+      let movie: Movie | null = null
+      for (let attempt = 0; attempt < 2 && !movie; attempt += 1) {
+        movie = await fetchMovieDetails(id, false)
       }
-      fallbackPage += 1
+      movies[index] = movie ?? roomMoviePlaceholder(id)
     }
   }
 
-  return { movies, nextPage: page }
+  await Promise.all(Array.from({ length: Math.min(4, movieIds.length) }, () => worker()))
+  return movies
+}
+
+async function fetchPersonalRoomDeck(
+  profile: TasteProfile,
+  filters: FilterState,
+  excludedIds: number[]
+): Promise<Movie[]> {
+  const excluded = new Set([...excludedIds, ...(profile.watchedMovieIds ?? []), ...(profile.watchedMovies ?? []).map((w) => w.movie.id)])
+  const candidates = new Map<number, Movie>()
+  const preferredGenres = filters.genreId > 0 ? [filters.genreId] : getTopGenreIds(profile, 4)
+  const genreQueries = preferredGenres.length ? preferredGenres : [0]
+
+  for (const genreId of genreQueries) {
+    for (let page = 1; page <= 3 && candidates.size < ROOM_DECK_SIZE * 3; page += 1) {
+      const batch = await fetchFilteredMovies(page, { ...filters, genreId })
+      for (const movie of batch) if (!excluded.has(movie.id)) candidates.set(movie.id, movie)
+      if (batch.length === 0) break
+    }
+  }
+  for (let page = 1; page <= 5 && candidates.size < ROOM_DECK_SIZE * 2; page += 1) {
+    const batch = await fetchPopularMovies(page, filters.genreId)
+    for (const movie of batch) if (!excluded.has(movie.id)) candidates.set(movie.id, movie)
+    if (batch.length === 0) break
+  }
+
+  const score = (movie: Movie) => {
+    const taste = movie.genre_ids.reduce((sum, id) => sum + Math.max(0, profile.genreScores[id] ?? 0), 0)
+    return taste * 2 + movie.vote_average * 0.1 + Math.log1p(candidates.size)
+  }
+  return Array.from(candidates.values()).sort((a, b) => score(b) - score(a)).slice(0, ROOM_DECK_SIZE)
 }
 
 export function App() {
@@ -94,6 +123,8 @@ export function App() {
   const [cardDetailMovie, setCardDetailMovie] = useState<Movie | null>(null)
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
+  const [roomSyncError, setRoomSyncError] = useState<string | null>(null)
+  const [vetoedMovieIds, setVetoedMovieIds] = useState<Set<number>>(() => new Set())
   const [partnerSwipesCount, setPartnerSwipesCount] = useState(0)
   const [initialSwipeIndex, setInitialSwipeIndex] = useState(0)
   const roundNumberRef = useRef(roundNumber)
@@ -104,6 +135,23 @@ export function App() {
 
   const moviesRef = useRef(movies)
   moviesRef.current = movies
+
+  const ensurePersonalRoomDeck = useCallback(async (roomId: string, targetRound: number) => {
+    const existingIds = await getRoomUserDeck(roomId, userId, targetRound)
+    if (existingIds?.length === ROOM_DECK_SIZE) return fetchRoomMovies(existingIds)
+    const profile = tasteProfileRef.current
+    await saveRoomParticipantTaste(roomId, userId, profile.genreScores, Array.from(new Set([
+      ...(profile.watchedMovieIds ?? []), ...(profile.watchedMovies ?? []).map((entry) => entry.movie.id),
+    ])))
+    const previouslySeen = await fetchRoomUsedMovieIds(roomId, userId)
+    const deck = await fetchPersonalRoomDeck(profile, filters, previouslySeen)
+    if (deck.length !== ROOM_DECK_SIZE) throw new Error(`Kişisel desten için ${ROOM_DECK_SIZE} izlenmemiş film bulunamadı; şu an ${deck.length} aday var.`)
+    const canonicalIds = await saveRoomUserDeck(roomId, userId, targetRound, deck.map((movie) => movie.id))
+    const byId = new Map(deck.map((movie) => [movie.id, movie]))
+    const missing = await fetchRoomMovies(canonicalIds.filter((id) => !byId.has(id)))
+    const missingById = new Map(missing.map((movie) => [movie.id, movie]))
+    return canonicalIds.map((id) => byId.get(id) ?? missingById.get(id) ?? roomMoviePlaceholder(id))
+  }, [filters, userId])
 
   // Load movies from TMDb with duplicate & already swiped movie exclusion
   const loadMovies = useCallback(
@@ -226,14 +274,28 @@ export function App() {
   // Listen to Supabase Realtime when an active room is set (Matches, Vetoes, Swipes)
   useEffect(() => {
     if (!room) return
+    let isCurrentSubscription = true
 
     // Fetch initial partner swipe count and current user's progress
     fetchRoomSwipesCount(room.id, userId, roundNumber).then(({ myCount, partnerCount }) => {
+      if (!isCurrentSubscription || roundNumberRef.current !== roundNumber) return
       setPartnerSwipesCount(partnerCount)
       if (myCount > 0) {
         setInitialSwipeIndex(myCount)
       }
+    }).catch((error) => {
+      if (isCurrentSubscription && roundNumberRef.current === roundNumber) {
+        setRoomSyncError('Oda ilerlemesi alınamadı. Bağlantı tekrar denenecek.')
+        console.error('Failed to load initial room progress:', error)
+      }
     })
+    fetchRoomVetoedMovieIds(room.id, roundNumber)
+      .then((ids) => {
+        if (isCurrentSubscription && roundNumberRef.current === roundNumber) {
+          setVetoedMovieIds(new Set(ids))
+        }
+      })
+      .catch((error) => console.error('Failed to load round vetoes:', error))
 
     const unsubscribe = subscribeToRoom(
       room.id,
@@ -244,44 +306,32 @@ export function App() {
       // taste-based recommendations after both users complete their cards.
       () => {},
       (vetoedMovieId, vetoUserId) => {
+        if (roundNumberRef.current !== roundNumber) return
         if (vetoUserId !== userId) {
-          // Resolve a partner-vetoed card as a neutral skip so both users' round counts stay aligned.
-          void recordSwipe(room.id, userId, vetoedMovieId, 'pass', roundNumber)
-          setMovies((prev) => prev.filter((m) => m.id !== vetoedMovieId))
+          // Keep the canonical 25-card deck intact. SwipeDeck records a neutral
+          // pass when this slot reaches the front of the local deck.
+          setVetoedMovieIds((prev) => new Set(prev).add(vetoedMovieId))
           setPartnerVetoNotice('Partnerin bir filmi veto etti! 🚫')
           setTimeout(() => setPartnerVetoNotice(null), 3000)
         }
       },
       (partnerCount) => {
+        if (roundNumberRef.current !== roundNumber) return
         // Realtime and polling both provide the exact unique-film count.
         setPartnerSwipesCount((prev) => Math.max(prev, partnerCount))
       },
-      async (incomingRound, deckIds) => {
+      async (incomingRound) => {
         if (incomingRound <= roundNumberRef.current) return
         roundNumberRef.current = incomingRound
         setRoundNumber(incomingRound)
         setPartnerSwipesCount(0)
         setInitialSwipeIndex(0)
-        setRoom({ ...room, round_number: incomingRound, room_deck: deckIds })
+        setVetoedMovieIds(new Set())
+        setRoomSyncError(null)
+        setRoom({ ...room, round_number: incomingRound })
         setIsLoading(true)
         try {
-          const details = await Promise.all(
-            deckIds.map(async (id) => {
-              const movie = await fetchMovieDetails(id, false)
-              if (movie) return movie
-              const retry = await fetchMovieDetails(id, false)
-              return (retry || {
-                id,
-                title: `Film #${id}`,
-                overview: '',
-                poster_path: null,
-                backdrop_path: null,
-                vote_average: 7.5,
-                release_date: '',
-                genre_ids: [],
-              }) as Movie
-            })
-          )
+          const details = await ensurePersonalRoomDeck(room.id, incomingRound)
           if (roundNumberRef.current === incomingRound) {
             setMovies(details)
           }
@@ -292,41 +342,21 @@ export function App() {
     )
 
     return () => {
+      isCurrentSubscription = false
       unsubscribe()
     }
-  }, [room?.id, userId, roundNumber])
+  }, [room?.id, userId, roundNumber, ensurePersonalRoomDeck])
 
-  // Atomically create a room with 25 curated movies directly persisted
+  // Create the room shell; each participant will prepare a separate personal deck.
   const handleCreateRoomAction = async (): Promise<Room> => {
-    setIsLoading(true)
-    try {
-      const { movies: deck25, nextPage } = await fetchRoomDeck(1, filters)
-      const movieIds = deck25.map((m) => m.id)
-      setPage(nextPage)
-
-      const newRoom = await createRoom(movieIds)
-      setMovies(deck25)
-      setRoom(newRoom)
-      sessionStorage.setItem('neizlesek_active_room_code', newRoom.room_code)
-      const newUrl = `${window.location.pathname}?room=${newRoom.room_code}`
-      window.history.replaceState({}, '', newUrl)
-
-      roundNumberRef.current = 1
-      setRoundNumber(1)
-      setInitialSwipeIndex(0)
-      setPartnerSwipesCount(0)
-
-      return newRoom
-    } catch (err) {
-      console.error('Error creating room with deck:', err)
-      throw err
-    } finally {
-      setIsLoading(false)
-    }
+    return createRoom()
   }
 
   const handleRoomCreatedOrJoined = async (newRoom: Room) => {
     setRoom(newRoom)
+    setInitialSwipeIndex(0)
+    setVetoedMovieIds(new Set())
+    setRoomSyncError(null)
     sessionStorage.setItem('neizlesek_active_room_code', newRoom.room_code)
     const newUrl = `${window.location.pathname}?room=${newRoom.room_code}`
     window.history.replaceState({}, '', newUrl)
@@ -339,64 +369,27 @@ export function App() {
     fetchRoomSwipesCount(newRoom.id, userId, initialRound).then(({ myCount, partnerCount }) => {
       setInitialSwipeIndex(myCount)
       setPartnerSwipesCount(partnerCount)
+    }).catch((error) => {
+      setRoomSyncError('Oda ilerlemesi alınamadı. Bağlantıyı kontrol edip yeniden yükleyin.')
+      console.error('Failed to load joined room progress:', error)
     })
 
-    if (newRoom.room_deck && newRoom.room_deck.length > 0) {
-      // Partner joined: load identical 25 movies saved in room_deck
-      setIsLoading(true)
-      try {
-        const details = await Promise.all(
-          newRoom.room_deck.map(async (id) => {
-            const movie = await fetchMovieDetails(id, false)
-            if (movie) return movie
-            // Retry once if network dropped
-            const retry = await fetchMovieDetails(id, false)
-            if (retry) return retry
-            // Guaranteed fallback so deck size is NEVER reduced below 25
-            return {
-              id,
-              title: `Film #${id}`,
-              overview: 'Film detayları yükleniyor...',
-              poster_path: null,
-              backdrop_path: null,
-              vote_average: 7.5,
-              release_date: '',
-              genre_ids: [],
-            } as Movie
-          })
-        )
-        setMovies(details)
-      } catch (err) {
-        console.error('Error loading room deck:', err)
-      } finally {
-        setIsLoading(false)
-      }
-    } else {
-      // Creator created room: curate 25 movies and persist to room_deck in Supabase
-      setIsLoading(true)
-      try {
-        const { movies: deck25, nextPage } = await fetchRoomDeck(1, filters)
-        const movieIds = deck25.map((m) => m.id)
-        setPage(nextPage)
-        const canonicalIds = await setRoomDeck(newRoom.id, movieIds)
-        const fetchedById = new Map(deck25.map((movie) => [movie.id, movie]))
-        const canonicalMovies = await Promise.all(
-          canonicalIds.map((id) => fetchedById.get(id) ?? fetchMovieDetails(id))
-        )
-        const validMovies = canonicalMovies.filter((movie): movie is Movie => movie !== null)
-        setMovies(validMovies)
-        setRoom({ ...newRoom, room_deck: canonicalIds })
-      } catch (err) {
-        console.error('Error creating room deck:', err)
-      } finally {
-        setIsLoading(false)
-      }
+    setIsLoading(true)
+    try {
+      setMovies(await ensurePersonalRoomDeck(newRoom.id, initialRound))
+    } catch (err) {
+      setRoomSyncError(err instanceof Error ? err.message : 'Kişisel film listen hazırlanamadı.')
+      console.error('Error creating personal room deck:', err)
+    } finally {
+      setIsLoading(false)
     }
   }
 
   const handleLeaveRoom = () => {
     sessionStorage.removeItem('neizlesek_active_room_code')
     setRoom(null)
+    setVetoedMovieIds(new Set())
+    setRoomSyncError(null)
     setRoundNumber(1)
     setPartnerSwipesCount(0)
     setInitialSwipeIndex(0)
@@ -405,19 +398,23 @@ export function App() {
     loadMovies(1, filters, false, 20)
   }
 
-  const handleSwipe = async (movie: Movie, action: SwipeAction) => {
-    // Dynamically learn from swipe and update taste profile
-    const updated = updateTasteWithSwipe(tasteProfile, movie, action)
-    setTasteProfile(updated)
-
+  const handleSwipe = async (movie: Movie, action: SwipeAction): Promise<boolean> => {
     // If active in a room, record to Supabase
     if (room) {
       try {
         await recordSwipe(room.id, userId, movie.id, action, roundNumber)
+        setRoomSyncError(null)
       } catch (err) {
         console.error('Swipe record error:', err)
+        setRoomSyncError('Seçimin kaydedilemedi. Kartı tekrar kaydırmayı dene; ilerlemen kaybolmadı.')
+        return false
       }
     }
+
+    // Learn only after the room accepted the swipe, so retries do not double-count taste.
+    const updated = updateTasteWithSwipe(tasteProfile, movie, action)
+    setTasteProfile(updated)
+    return true
   }
 
   const handleLoadNextRound = async () => {
@@ -426,17 +423,18 @@ export function App() {
       // In room mode: curate next 25-film round and sync room_deck
       setIsLoading(true)
       try {
-        const { movies: deck25, nextPage: followingPage } = await fetchRoomDeck(nextPage, filters)
-        const movieIds = deck25.map((m) => m.id)
-        const updatedRoom = await advanceRoomRound(room.id, roundNumber, movieIds)
-        setPage(followingPage)
+        const personalDeck = await ensurePersonalRoomDeck(room.id, roundNumber + 1)
+        const updatedRoom = await advanceRoomRound(room.id, roundNumber, personalDeck.map((movie) => movie.id))
+        setPage(nextPage)
         if (updatedRoom.round_number > roundNumberRef.current) {
           roundNumberRef.current = updatedRoom.round_number
           setRoundNumber(updatedRoom.round_number)
           setPartnerSwipesCount(0)
-          setRoom({ ...room, round_number: updatedRoom.round_number, room_deck: updatedRoom.room_deck })
-          const details = await Promise.all(updatedRoom.room_deck.map((id) => fetchMovieDetails(id)))
-          setMovies(details.filter((movie): movie is Movie => movie !== null))
+          setInitialSwipeIndex(0)
+          setVetoedMovieIds(new Set())
+          setRoomSyncError(null)
+          setRoom({ ...room, round_number: updatedRoom.round_number })
+          setMovies(personalDeck)
         }
       } catch (err) {
         console.error('Error loading next room round:', err)
@@ -495,6 +493,11 @@ export function App() {
           <span>{partnerVetoNotice}</span>
         </div>
       )}
+      {roomSyncError && (
+        <div role="alert" className="absolute top-28 inset-x-4 z-40 bg-amber-950/95 border border-amber-500/50 text-amber-100 py-2.5 px-4 rounded-2xl text-xs font-bold text-center shadow-xl backdrop-blur-md">
+          {roomSyncError}
+        </div>
+      )}
 
       {/* Main Content Area based on Active Tab */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
@@ -519,6 +522,7 @@ export function App() {
               onOpenFallback={room ? () => setIsFallbackOpen(true) : undefined}
               partnerSwipesCount={partnerSwipesCount}
               initialIndex={initialSwipeIndex}
+              vetoedMovieIds={vetoedMovieIds}
             />
           </div>
         )}

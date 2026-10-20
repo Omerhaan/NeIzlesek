@@ -11,7 +11,7 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 | **Faz 1** | Çekirdek Altyapı, Supabase & TMDb Eşleşme | ✅ Tamamlandı | %100 |
 | **Faz 2** | 3 Sekmeli Arayüz, Filtreler & Zevk Kalibrasyonu | ✅ Tamamlandı | %100 |
 | **Faz 3** | Kütüphane Yönetimi, Kart Detayı, Veto & Fallback | ✅ Tamamlandı | %100 |
-| **Faz 3.5** | Oda Akışı Güvenilirliği & Canlıya Hazırlık | 🟢 **Büyük Ölçüde Tamamlandı** | %90 |
+| **Faz 3.5** | Oda Akışı Güvenilirliği & Canlıya Hazırlık | 🟡 **Kişisel deste geçişi bekliyor** | %85 |
 | **Faz 4** | Mobil PWA, Haptic Titreşim & Cihaz Deneyimi | ⚪ Beklemede | %0 |
 | **Faz 5** | Zevk Analitiği, Hayat Sayacı & Çift Uyumu | ⚪ Beklemede | %0 |
 | **Faz 6** | Çoklu Arkadaş Grubu Modu (3-5 Kişi) | ⚪ Beklemede | %0 |
@@ -48,8 +48,8 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 - [x] **Çiftler İçin Veto Mekanizması:**
   - Tur başına **3 adet sınırlı Veto hakkı** (oyunlaştırma ve suistimal engeli).
   - Veto edilen filmin Supabase Realtime ile partnerin ekranından da anında düşürülmesi.
-- [x] **Oda Senkronizasyonu (`room_deck`):**
-  - İki cihazın aynı odaya girdiğinde **birebir aynı 25 filmi aynı sırada** görmesini sağlayan veritabanı senkronizasyonu.
+- [x] **Oda Senkronizasyonu (kişiye özel desteler):**
+  - Her katılımcı kendi zevk profiline göre 25 farklı filmi görür; ortaklaştırılan şey tur numarası ve swipe sonuçlarıdır.
 - [x] **Tur Sonu Canlı Partner Bekleme Ekranı:**
   - Bir kullanıcı 25 filmi bitirdiğinde partnerin ilerlemesini canlı gösteren bekleme ekranı (`Partnerinin İlerlemesi: 18 / 25 Film`).
 - [x] **Fallback Eşleşme (Boş Kesişim Çözümü):**
@@ -70,13 +70,14 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 
 1. **Supabase şemasını istemciyle eşleştir:** [x] İstemci ve yerel migration `room_swipes.user_name` alanında birleştirildi; benzersizlik kısıtı, RPC'ler (`initialize_room_deck`, `advance_room_round`) ve eşleşme tetikleyicisi Supabase üzerinde doğrulandı.
 2. **Tur boyutunu tutarlı hale getir ve 25 filmi garanti et:** [x] Oda destesi 6 TMDb sayfası taranarak oluşturuluyor; dar filtre durumunda popüler filmlerle tam 25 filme tamamlanıyor. Deste boyutu ne olursa olsun `effectiveLimit` ile senkronize çalışıyor ve deste bitişinde boş ekranda donma engellendi.
-3. **Tek kaynaktan ve atomik oda destesi üret:** [x] Oda oluşturulduğu ilk anda 25 film destesiyle birlikte tek INSERT ile Supabase'e yazılıyor; boş deste yarış durumu (race condition) ortadan kaldırıldı. Kurucu oda kurar kurmaz beklemeden anında 25 filmle seçim ekranına yönlendiriliyor. Sonraki turlar için kilitli RPC'ler devrede.
-4. **Eşleşme ve sayaç bildirimlerini tekilleştir:** [x] Swipe sayısı tekil film bazında sayılıyor; Realtime ve polling aynı mutlak sayıyı kullanıyor; yinelenen swipe animasyonları engellendi. Partner deste yüklerken TMDb ağ hatalarına karşı retry/fallback ile 25 film tam korunuyor, deste 24'e düşmüyor. Bekleme ekranına 24/25 takılmalarını çözen hızlı sonuç açma butonu eklendi.
-5. **Oda oturumunu ve sayfa yenileme kaybını önle:** [x] `sessionStorage` ve URL `?room=CODE` parametresi ile sayfa yenilendiğinde (F5) veya sekme uykusunda odadan düşme engellendi. Kullanıcının kaldığı kart indeksi (`initialIndex`) Supabase swipe verisinden otomatik yükleniyor.
+3. **Katılımcı başına kişisel ve kalıcı deste:** [~] `room_user_decks` tablosu oda/kullanıcı/tur anahtarıyla kişisel 25 film sırasını saklıyor. İzlenen ve aynı odada daha önce görülen filmler eleniyor; oda tur değişimini ortaklaştırırken film sıraları kişiye özel kalıyor. Yeni SQL şeması Supabase'e uygulanmalı ve iki cihazda doğrulanmalı.
+4. **Eşleşme ve sayaç bildirimlerini tekilleştir:** [~] Swipe yazımı artık idempotent upsert + retry/timeout kullanıyor; kayıt başarısızsa kart ilerlemiyor ve kullanıcıya hata gösteriliyor. Oda destesi veto veya TMDb detay hatasıyla kısaltılmıyor. Realtime/polling sayaçları mevcut turla sınırlandırıldı. Üretim ortamında iki cihaz doğrulaması hâlâ gerekli.
+5. **Oda oturumunu ve sayfa yenileme kaybını önle:** [~] `sessionStorage` ve URL `?room=CODE` parametresi ile oda korunuyor. Kart indeksi Supabase'den yükleniyor ve yeni turda sıfırlanıyor; üretim ortamında iki cihaz doğrulaması hâlâ gerekli.
 6. **Tur Sonu Ortak Seçimler & Öneriler:** [x] Ortak beğeni swipe sırasında bildirim olarak açılmaz. İki taraf da turu bitirince ortak beğeniler ve ortak türlere dayalı öneriler sonuç ekranında gösterilir; seçilen film ayrıca eşleşme kutlamasını açar.
 7. **Veritabanı erişimini ve oda yaşam döngüsünü gözden geçir:** [ ] RLS/policy kurallarını anon kullanıcı modeliyle kontrol et; oda kodu, katılım, swipe, veto, eşleşme ve eski oda temizliği için beklenen izinleri tanımla. Temizlik fonksiyonunun gerçekten zamanlanıp zamanlanmadığını ve bağlı swipe kayıtlarının silinme davranışını doğrula.
 8. **Yapılandırma ve hata durumlarını belgele:** [ ] README'ye kurulum, gerekli ortam değişkenleri, Supabase şema kurulumu ve dağıtım adımlarını ekle. Eksik API anahtarı, ağ hatası ve boş sonuç durumlarını kullanıcıya ayırt edilir biçimde göster.
-9. **Çıkış ölçütü:** İki ayrı tarayıcı/cihazla aynı odayı açıp aynı desteyi aynı sırada görmek; swipe, veto, tur sonu, fallback ve eşleşmeyi doğrulamak; ardından üretim build'ini ve veritabanı policy'lerini kontrol etmek.
+9. **Çıkış ölçütü:** İki ayrı tarayıcı/cihazın kendi zevklerine göre farklı 25 film aldığını; izlenen filmlerin elendiğini; swipe, veto, sayaç, tur sonu, ortak beğeni ve ortak zevk önerilerinin çalıştığını doğrula. Üretim Supabase şeması ve policy'leri ayrıca kontrol edilmeli.
+10. **Kişisel deste geçişi:** Uygulama güncellemesinden önce `supabase_schema_v2.sql` yeniden çalıştırılarak `room_user_decks` ve `room_participant_tastes` tabloları eklenmeli. Eski odalarda ortak deste kullanan mevcut turun sorunsuz tamamlanması iki cihazla kontrol edilmeli.
 
 ### 🚀 FAZ 4: PWA ve Cihaz Deneyimi
 *Amaç: Web sitesini gerçek bir mobil uygulama hissiyatına kavuşturmak ve tarayıcı çubuğunu kaldırmak.*
@@ -112,6 +113,9 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
    - En çok izlediğin ilk 3 film türü ve en sevdiğin yönetmenlerin dağılımı.
 4. **Eşleşen Filmi Birlikte Puanlama:**
    - Eşleşilen filmi izledikten sonra iki tarafın da filme verdiği puanların ortak profilde tutulması.
+5. **Akıllı Ortak Deste Algoritması (Joint Taste Intersection):**
+   - İki partner odaya girdiğinde, iki kullanıcının zevk profillerinin (`genreScores`, en sevilen türler) matematiksel kesişimini (`$A \cap B$`) hesaplayarak ortak 25 film derlenmesi.
+   - Her iki taraf da birebir aynı 25 filmi görür (garantili eşleşme kesişimi ve canlı veto gücü korunur), ancak deste rastgele değil doğrudan çiftin ortak zevk kümesinden beslenir.
 
 ---
 
@@ -158,7 +162,7 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 
 ## 📌 Sıradaki Önerilen Aksiyon
 
-**Faz 3.5 Doğrulandı:** İki cihazlı oda oluşturma, katılma, atomik 25 film destesi ve canlı sayaç senkronizasyonu tamamlandı. Sonraki adım: Faz 4 PWA kurulumu (manifest, ikonlar, mobil tam ekran deneyimi) veya RLS güvenlik kuralları.
+**Sıradaki adım:** Önce kişiye özel deste tablolarını Supabase'e ekle, sonra iki cihazda farklı 25'li listeleri ve tur sonu ortak önerileri doğrula. Ardından RLS/oda yaşam döngüsü ve README işlerine dön.
 
 ---
 
@@ -230,9 +234,15 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
 - **Kök Neden:** `SwipeDeck` içindeki `useEffect`, tur tamamlanma şartı (`roundIndex >= effectiveLimit && partnerSwipesCount >= effectiveLimit`) her iki cihaz da bitirdiğinde sürekli `true` kaldığı için modal kapatılsa bile 700ms'lik timer ile `onOpenFallback()` fonksiyonunu sonsuz döngüde yeniden tetikliyordu. Ayrıca 'Vazgeç' butonu sadece modalı kapatıyor, yeni tura geçirmiyordu.
 - **Çözüm:**
   - `hasAutoOpenedFallback` ref bayrağı eklendi. Modal tur bitiminde yalnızca İLK SEFER otomatik açılır ve bayrak kilitlenir. Kullanıcı kapattıktan sonra asla kendiliğinden tekrar açılmaz.
+  - Bayrak 700 ms'lik gecikmeli açılış gerçekten çalıştığında kilitlenir; bu sırada parent render olursa temizlenen timer modalı sessizce devre dışı bırakamaz.
   - Kullanıcı isterse `SwipeDeck` tur sonu ekranındaki butona basarak manuel olarak tekrar açabilir.
   - Bayrak kilidi sadece kullanıcı yeni bir tura geçtiğinde (`roundNumber` değiştiğinde) sıfırlanır.
   - 'Vazgeç ve Sıradaki Tura Geç' butonuna `onNextRound?.()` entegre edildi; basıldığında hem modal kapatılıyor hem de doğrudan bir sonraki 25 filmlik tura geçiliyor.
+
+### 12. Oda İlerlemesinin 13 Kartta Takılması / Yeni Turun Eski İndeksten Başlaması
+- **Belirti:** Kullanıcı 13 civarında bekleme/ilerleme ekranında kalıyor veya yeni turda sayaç eski kart numarasından devam ediyor.
+- **Kök Neden:** Yeni tur yerel olarak açılırken `initialSwipeIndex` sıfırlanmıyordu. Ayrıca oda turu detay yüklemesi başarısız filmleri listeden çıkarıyordu; `effectiveLimit` de kalan `movies.length` üzerinden küçülüyordu. Ortak beğenideki ek yedek sorgu da swipe kaydını bloke edebiliyordu. Kayıt hataları yutulduğundan kart ilerleyip veritabanı sayacı geride kalabiliyordu.
+- **Çözüm:** Yeni tur indeksi ve veto listesi sıfırlanıyor; oda filmleri en fazla 4 eşzamanlı istekle yükleniyor, retry sonrası başarısız ID'ler yer tutucuyla korunuyor. Yükleme sürerken eski turdaki kartlar kaydedilemiyor. Partner veto edilen kartı desteden silmek yerine aynı yuvada nötr pas olarak atlatıyor. Swipe yazımı idempotent upsert ve zaman aşımıyla yeniden deneniyor; başarısız yazımda kart ilerlemiyor ve görünür hata veriliyor. Eşleşme yedek sorgusu artık kart ilerlemesini bekletmiyor.
 
 ## 🔎 Son Kod İncelemesi (2026-10-20)
 
@@ -242,4 +252,11 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
 - [ ] Sayaç eşitsizliği farklı cihazlarda henüz üretim Supabase'iyle yeniden üretilemedi. Yerel kodda progress verisi benzersiz film ID'lerinden hesaplanıyor; gerçek oda/Realtime/RLS doğrulaması Faz 3.5 çıkış ölçütünde bekliyor.
 - [ ] SQL dosyasında RLS policy tanımı ve cleanup zamanlayıcısı görünmüyor; veritabanı güvenliği/temizliği doğrulanmadan canlı kullanıma hazır sayılmamalı.
 - [ ] `README.md` hâlâ Vite başlangıç şablonu; kurulum, ortam değişkenleri ve Supabase kurulum adımları belgelenmeli.
-- [ ] Bu incelemede uygulama testleri/build çalıştırılmadı; sonuçlar kod incelemesine dayanıyor.
+- [x] `npm run build` başarıyla tamamlandı. İki farklı cihazdaki canlı Supabase akışı bu ortamdan uçtan uca doğrulanamadı.
+
+### 13. Partnerlerin Aynı, Kişiselleştirilmemiş 25 Filmi Görmesi
+- **Belirti:** Çiftler oda içinde aynı listeyi gördüğü için her kişinin kendi zevkine uygun, daha önce izlemediği filmleri seçme ihtiyacı karşılanmıyordu.
+- **Kök Neden:** Tek `match_rooms.room_deck` alanı iki kullanıcıya ortak film sırası veriyordu.
+- **Düzeltme:** Oda akışı kullanıcı+tura özel `room_user_decks` listesini kullanıyor. Adaylar kişinin tür skorlarına göre toplanıp sıralanıyor; izlenenler ve o odada daha önce kaydırılan filmler eleniyor. Tur numarası ortak kalıyor, swipe sayacı ve aynı film üzerindeki ortak beğeni yine oda genelinde eşleşiyor. Sonuç önerileri iki katılımcının normalize edilmiş tür skorlarını dengeli biçimde birleştiriyor.
+- **Veritabanı geçişi:** `supabase_schema_v2.sql` dosyasına iki yeni tablo eklendi. Bu SQL üretim Supabase'inde henüz çalıştırılmadı; yeni kod canlıda kullanılmadan önce uygulanmalı.
+- [ ] Kişisel deste akışı kodlandı ancak yeni tabloların Supabase'e uygulanması ve iki cihazda ayrı profillerle doğrulama bekliyor.

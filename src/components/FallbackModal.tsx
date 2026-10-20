@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Sparkles, Trophy, Star, ArrowRight, Loader2, X } from 'lucide-react'
 import type { Movie } from '../types'
 import { fetchMovieDetails, fetchRecommendationsByGenres } from '../services/tmdb'
-import { fetchRoomRoundLikes, setRoomMatchedMovie } from '../services/supabase'
+import { fetchRoomRoundLikes, fetchRoomSharedTasteGenres, setRoomMatchedMovie } from '../services/supabase'
 import { MovieArtwork } from './MovieArtwork'
 
 interface FallbackModalProps {
@@ -49,10 +49,12 @@ export function FallbackModal({
         for (const movie of [...validShared, ...extraSeeds.filter((movie): movie is Movie => movie !== null)]) {
           for (const genreId of movie.genre_ids) genreCounts.set(genreId, (genreCounts.get(genreId) ?? 0) + 1)
         }
-        const topGenres = Array.from(genreCounts.entries())
+        const inferredGenres = Array.from(genreCounts.entries())
           .sort((a, b) => b[1] - a[1])
           .slice(0, 3)
           .map(([genreId]) => genreId)
+        const sharedTasteGenres = await fetchRoomSharedTasteGenres(roomId).catch(() => [])
+        const topGenres = sharedTasteGenres.length > 0 ? sharedTasteGenres : inferredGenres
         const recommendedMovies = await fetchRecommendationsByGenres(
           topGenres,
           [...likedMovieIds, ...vetoedMovieIds],

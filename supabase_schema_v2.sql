@@ -158,3 +158,27 @@ BEGIN
   WHERE created_at < NOW() - INTERVAL '7 days';
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 6. Kişiye özel oda desteleri ve ortak öneri için asgari zevk özeti.
+-- Uygulamayı güncellerken bu dosyayı Supabase SQL Editor'da yeniden çalıştırın.
+CREATE TABLE IF NOT EXISTS public.room_user_decks (
+  room_id uuid NOT NULL REFERENCES public.match_rooms(id) ON DELETE CASCADE,
+  user_id text NOT NULL,
+  round_number integer NOT NULL,
+  movie_ids integer[] NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (room_id, user_id, round_number),
+  CHECK (cardinality(movie_ids) = 25)
+);
+
+CREATE TABLE IF NOT EXISTS public.room_participant_tastes (
+  room_id uuid NOT NULL REFERENCES public.match_rooms(id) ON DELETE CASCADE,
+  user_id text NOT NULL,
+  genre_scores jsonb NOT NULL DEFAULT '{}'::jsonb,
+  watched_movie_ids integer[] NOT NULL DEFAULT '{}',
+  updated_at timestamptz NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (room_id, user_id)
+);
+
+GRANT SELECT, INSERT, UPDATE ON public.room_user_decks TO anon, authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE ON public.room_participant_tastes TO anon, authenticated, service_role;
