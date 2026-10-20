@@ -144,6 +144,58 @@ export async function fetchFilteredMovies(
   }
 }
 
+export async function fetchRecommendationsByGenres(
+  genreIds: number[],
+  excludeIds: number[],
+  limit = 12
+): Promise<Movie[]> {
+  if (genreIds.length === 0) return []
+
+  const excluded = new Set(excludeIds)
+  const results: Movie[] = []
+  for (let page = 1; page <= 3 && results.length < limit; page++) {
+    try {
+      const params = new URLSearchParams({
+        api_key: TMDB_API_KEY,
+        language: 'tr-TR',
+        region: 'TR',
+        sort_by: 'popularity.desc',
+        include_adult: 'false',
+        'vote_count.gte': '20',
+        with_genres: genreIds.join('|'),
+        page: String(page),
+      })
+      const response = await fetch(`${BASE_URL}/discover/movie?${params}`)
+      if (!response.ok) break
+      const data = await response.json()
+      const pageMovies = (data.results || []) as Array<Record<string, unknown>>
+      if (pageMovies.length === 0) break
+
+      for (const movie of pageMovies) {
+        const id = Number(movie.id)
+        if (!id || excluded.has(id) || !movie.poster_path || !movie.overview) continue
+        excluded.add(id)
+        results.push({
+          id,
+          title: String(movie.title || movie.original_title || ''),
+          original_title: String(movie.original_title || ''),
+          overview: String(movie.overview),
+          poster_path: String(movie.poster_path),
+          backdrop_path: movie.backdrop_path ? String(movie.backdrop_path) : null,
+          vote_average: Math.round(Number(movie.vote_average || 0) * 10) / 10,
+          release_date: String(movie.release_date || ''),
+          genre_ids: Array.isArray(movie.genre_ids) ? movie.genre_ids.map(Number) : [],
+        })
+        if (results.length >= limit) break
+      }
+    } catch (error) {
+      console.error('Failed to fetch genre recommendations:', error)
+      break
+    }
+  }
+  return results
+}
+
 export async function fetchMovieProviders(movieId: number): Promise<StreamingProvider[]> {
   try {
     const url = `${BASE_URL}/movie/${movieId}/watch/providers?api_key=${TMDB_API_KEY}`
@@ -177,14 +229,14 @@ export function formatRuntime(minutes?: number): string {
   return `${mins} dk`
 }
 
-export async function fetchMovieDetails(movieId: number): Promise<Movie | null> {
+export async function fetchMovieDetails(movieId: number, includeProviders = true): Promise<Movie | null> {
   try {
     const url = `${BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=tr-TR&append_to_response=videos,credits&include_video_language=tr,en,null`
     const res = await fetch(url)
     if (!res.ok) return null
 
     const data = await res.json()
-    const providers = await fetchMovieProviders(movieId)
+    const providers = includeProviders ? await fetchMovieProviders(movieId) : []
 
     // Find best trailer (prefer Turkish trailer, then English trailer, then any YouTube video)
     const videos: any[] = data.videos?.results || []

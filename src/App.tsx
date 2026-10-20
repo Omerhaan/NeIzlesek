@@ -11,6 +11,7 @@ import { MovieDetailModal } from './components/MovieDetailModal'
 import { BottomNav, type NavTab } from './components/BottomNav'
 import {
   getOrCreateUserId,
+  createRoom,
   recordSwipe,
   subscribeToRoom,
   getRoomByCode,
@@ -238,29 +239,21 @@ export function App() {
       room.id,
       roundNumber,
       userId,
-      async (matchedMovieId) => {
-        const details = await fetchMovieDetails(matchedMovieId)
-        if (details) {
-          setMatchedMovie(details)
-          setIsMatchOpen(true)
-          setIsFallbackOpen(false)
-        }
+      () => {
+        // Automatic matches are presented only in the end-of-round results flow.
       },
       (vetoedMovieId, vetoUserId) => {
         if (vetoUserId !== userId) {
-          // Partner vetoed a movie: remove it from current deck immediately
+          // Resolve a partner-vetoed card as a neutral skip so both users' round counts stay aligned.
+          void recordSwipe(room.id, userId, vetoedMovieId, 'pass', roundNumber)
           setMovies((prev) => prev.filter((m) => m.id !== vetoedMovieId))
           setPartnerVetoNotice('Partnerin bir filmi veto etti! 🚫')
           setTimeout(() => setPartnerVetoNotice(null), 3000)
         }
       },
-      (partnerCountOrInc) => {
-        // Partner swiped on a movie: update partner count live (handles both delta and absolute sync)
-        if (typeof partnerCountOrInc === 'number' && partnerCountOrInc > 1) {
-          setPartnerSwipesCount(partnerCountOrInc)
-        } else {
-          setPartnerSwipesCount((prev) => prev + 1)
-        }
+      (partnerCount) => {
+        // Realtime and polling both provide the exact unique-film count.
+        setPartnerSwipesCount((prev) => Math.max(prev, partnerCount))
       },
       async (incomingRound, deckIds) => {
         if (incomingRound <= roundNumberRef.current) return
@@ -284,7 +277,36 @@ export function App() {
     return () => {
       unsubscribe()
     }
-  }, [room, userId, roundNumber])
+  }, [room?.id, userId, roundNumber])
+
+  // Atomically create a room with 25 curated movies directly persisted
+  const handleCreateRoomAction = async (): Promise<Room> => {
+    setIsLoading(true)
+    try {
+      const { movies: deck25, nextPage } = await fetchRoomDeck(1, filters)
+      const movieIds = deck25.map((m) => m.id)
+      setPage(nextPage)
+
+      const newRoom = await createRoom(movieIds)
+      setMovies(deck25)
+      setRoom(newRoom)
+      sessionStorage.setItem('neizlesek_active_room_code', newRoom.room_code)
+      const newUrl = `${window.location.pathname}?room=${newRoom.room_code}`
+      window.history.replaceState({}, '', newUrl)
+
+      roundNumberRef.current = 1
+      setRoundNumber(1)
+      setInitialSwipeIndex(0)
+      setPartnerSwipesCount(0)
+
+      return newRoom
+    } catch (err) {
+      console.error('Error creating room with deck:', err)
+      throw err
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleRoomCreatedOrJoined = async (newRoom: Room) => {
     setRoom(newRoom)
@@ -472,6 +494,7 @@ export function App() {
           <UserProfile
             tasteProfile={tasteProfile}
             activeRoom={room}
+            onCreateRoom={handleCreateRoomAction}
             onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
             onLeaveRoom={handleLeaveRoom}
             onNavigateToMatch={() => setActiveTab('match')}

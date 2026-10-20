@@ -46,6 +46,11 @@ export function SwipeDeck({
 
   const startPos = useRef({ x: 0, y: 0 })
   const isPointerDown = useRef(false)
+  const swipeInProgress = useRef(false)
+
+  useEffect(() => {
+    swipeInProgress.current = false
+  }, [roundIndex])
 
   // Sync initialIndex if updated externally
   useEffect(() => {
@@ -88,7 +93,8 @@ export function SwipeDeck({
   const triggerSwipe = useCallback(
     (action: SwipeAction) => {
       const currentMovie = movies[roundIndex]
-      if (!currentMovie) return
+      if (!currentMovie || swipeInProgress.current) return
+      swipeInProgress.current = true
 
       // Set target offset for exit animation
       if (action === 'pass') {

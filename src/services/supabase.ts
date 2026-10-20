@@ -26,17 +26,21 @@ export function getOrCreateUserId(): string {
   return userId
 }
 
-// Create a new match room
-export async function createRoom(): Promise<Room> {
+// Create a new match room (optionally with an initial curated 25-movie deck)
+export async function createRoom(initialDeck: number[] = []): Promise<Room> {
   const roomCode = generateRoomCode()
+  const insertPayload: Record<string, any> = {
+    room_code: roomCode,
+    status: initialDeck.length > 0 ? 'active' : 'waiting',
+    round_number: 1,
+  }
+  if (initialDeck.length > 0) {
+    insertPayload.room_deck = initialDeck
+  }
+
   const { data, error } = await supabase
     .from('match_rooms')
-    .insert([
-      {
-        room_code: roomCode,
-        status: 'waiting',
-      },
-    ])
+    .insert([insertPayload])
     .select()
     .single()
 
@@ -230,6 +234,44 @@ export async function fetchRoomFallbackCandidates(roomId: string, roundNumber: n
   }
 }
 
+export async function fetchRoomRoundLikes(
+  roomId: string,
+  roundNumber: number
+): Promise<{ sharedLikeIds: number[]; likedMovieIds: number[]; styleSeedIds: number[]; vetoedMovieIds: number[] }> {
+  const { data, error } = await supabase
+    .from('room_swipes')
+    .select('movie_id, action, user_name')
+    .eq('room_id', roomId)
+    .eq('round_number', roundNumber)
+
+  if (error || !data) throw new Error(error?.message ?? 'Tur oyları alınamadı')
+
+  const likesByUser = new Map<string, Set<number>>()
+  const likedMovieIds = new Set<number>()
+  const vetoedMovieIds = new Set<number>()
+  for (const row of data) {
+    if (row.action === 'veto') vetoedMovieIds.add(row.movie_id)
+    if (row.action !== 'like' || !row.user_name) continue
+    likedMovieIds.add(row.movie_id)
+    const userLikes = likesByUser.get(row.user_name) ?? new Set<number>()
+    userLikes.add(row.movie_id)
+    likesByUser.set(row.user_name, userLikes)
+  }
+
+  const participants = Array.from(likesByUser.values())
+  const sharedLikeIds = participants.length >= 2
+    ? Array.from(participants[0]).filter((id) => participants.slice(1).every((likes) => likes.has(id)))
+    : []
+  const styleSeedIds = Array.from(new Set(participants.flatMap((likes) => Array.from(likes).slice(0, 4))))
+
+  return {
+    sharedLikeIds: sharedLikeIds.filter((id) => !vetoedMovieIds.has(id)),
+    likedMovieIds: Array.from(likedMovieIds),
+    styleSeedIds,
+    vetoedMovieIds: Array.from(vetoedMovieIds),
+  }
+}
+
 // Manually trigger matched movie for a room (e.g. from fallback voting)
 export async function setRoomMatchedMovie(roomId: string, movieId: number): Promise<void> {
   const { error } = await supabase
@@ -299,7 +341,9 @@ export function subscribeToRoom(
               onVeto(swipe.movie_id, swipe.user_name)
             }
             if (onPartnerSwiped) {
-              onPartnerSwiped(1)
+              void fetchRoomSwipesCount(roomId, myUserId, roundNumber).then(({ partnerCount }) => {
+                onPartnerSwiped(partnerCount)
+              })
             }
           }
         }

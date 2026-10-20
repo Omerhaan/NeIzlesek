@@ -28,7 +28,8 @@ import { MovieDetailModal } from './MovieDetailModal'
 interface UserProfileProps {
   tasteProfile: TasteProfile
   activeRoom: Room | null
-  onRoomCreatedOrJoined: (room: Room) => void
+  onCreateRoom?: () => Promise<Room>
+  onRoomCreatedOrJoined: (room: Room) => Promise<void> | void
   onLeaveRoom: () => void
   onNavigateToMatch: () => void
   onUpdateTasteProfile?: (profile: TasteProfile) => void
@@ -37,6 +38,7 @@ interface UserProfileProps {
 export function UserProfile({
   tasteProfile,
   activeRoom,
+  onCreateRoom,
   onRoomCreatedOrJoined,
   onLeaveRoom,
   onNavigateToMatch,
@@ -61,9 +63,15 @@ export function UserProfile({
     setLoading(true)
     setErrorMsg('')
     try {
-      const room = await createRoom()
+      let room: Room
+      if (onCreateRoom) {
+        room = await onCreateRoom()
+      } else {
+        room = await createRoom()
+        await onRoomCreatedOrJoined(room)
+      }
       setCreatedRoom(room)
-      onRoomCreatedOrJoined(room)
+      onNavigateToMatch()
     } catch (err: any) {
       setErrorMsg('Oda oluşturulamadı: ' + err.message)
     } finally {
@@ -83,7 +91,7 @@ export function UserProfile({
         setErrorMsg('Oda bulunamadı! Lütfen kodu kontrol edin.')
         return
       }
-      onRoomCreatedOrJoined(room)
+      await onRoomCreatedOrJoined(room)
       onNavigateToMatch()
     } catch (err: any) {
       setErrorMsg('Odaya bağlanırken hata oluştu: ' + err.message)
@@ -236,15 +244,19 @@ export function UserProfile({
             <button
               onClick={handleCreateRoom}
               disabled={loading}
-              className="w-full py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold rounded-2xl flex items-center justify-between px-5 shadow-xl shadow-red-600/25 transition-transform active:scale-98 cursor-pointer"
+              className="w-full py-4 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-75 text-white font-bold rounded-2xl flex items-center justify-between px-5 shadow-xl shadow-red-600/25 transition-transform active:scale-98 cursor-pointer"
             >
               <div className="flex items-center gap-3 text-left">
                 <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
-                  <Users className="w-5 h-5 text-white" />
+                  <Users className={`w-5 h-5 text-white ${loading ? 'animate-pulse' : ''}`} />
                 </div>
                 <div>
-                  <div className="text-sm font-bold">Yeni Oda Kur</div>
-                  <div className="text-xs text-red-100 font-normal">Ortak zevkinize göre 25 film hazırla</div>
+                  <div className="text-sm font-bold">
+                    {loading ? '25 Özel Film Hazırlanıyor...' : 'Yeni Oda Kur'}
+                  </div>
+                  <div className="text-xs text-red-100 font-normal">
+                    {loading ? 'Kriterlerinize uygun deste oluşturuluyor' : 'Ortak zevkinize göre 25 film hazırla'}
+                  </div>
                 </div>
               </div>
               <ArrowRight className="w-5 h-5 text-white/80" />
