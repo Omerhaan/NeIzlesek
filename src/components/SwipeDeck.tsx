@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Heart, Eye, RotateCcw, Sparkles } from 'lucide-react'
+import { X, Heart, Eye, RotateCcw, Sparkles, Ban, Trophy } from 'lucide-react'
 import type { Movie, SwipeAction } from '../types'
 import { MovieCard } from './MovieCard'
 
@@ -15,6 +15,8 @@ interface SwipeDeckProps {
   hasRoundLimit?: boolean
   isRoomMode?: boolean
   totalSwipesCount?: number
+  onOpenDetails?: (movie: Movie) => void
+  onOpenFallback?: () => void
 }
 
 export function SwipeDeck({
@@ -29,13 +31,21 @@ export function SwipeDeck({
   hasRoundLimit = true,
   isRoomMode = false,
   totalSwipesCount = 0,
+  onOpenDetails,
+  onOpenFallback,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(0)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
+  const [remainingVetoes, setRemainingVetoes] = useState(3)
 
   const startPos = useRef({ x: 0, y: 0 })
   const isPointerDown = useRef(false)
+
+  // Reset veto count each round
+  useEffect(() => {
+    setRemainingVetoes(3)
+  }, [roundNumber])
 
   // In infinite mode (no round limit), auto-load more movies when nearing end
   useEffect(() => {
@@ -49,13 +59,16 @@ export function SwipeDeck({
       const currentMovie = movies[roundIndex]
       if (!currentMovie) return
 
-      const anim = action === 'pass' ? 'left' : 'right'
-
       // Set target offset for exit animation
-      if (anim === 'left') {
+      if (action === 'pass') {
         setDragOffset({ x: -window.innerWidth - 100, y: 0 })
-      } else {
+      } else if (action === 'like') {
         setDragOffset({ x: window.innerWidth + 100, y: 0 })
+      } else if (action === 'veto') {
+        setDragOffset({ x: 0, y: window.innerHeight + 100 })
+      } else {
+        // watched
+        setDragOffset({ x: 0, y: -window.innerHeight - 100 })
       }
 
       setTimeout(() => {
@@ -67,10 +80,15 @@ export function SwipeDeck({
     [roundIndex, movies, onSwipe]
   )
 
-  // Keyboard Arrow Keys Navigation
+  const handleVetoClick = useCallback(() => {
+    if (remainingVetoes <= 0) return
+    setRemainingVetoes((prev) => Math.max(0, prev - 1))
+    triggerSwipe('veto')
+  }, [remainingVetoes, triggerSwipe])
+
+  // Keyboard Navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in an input or textarea
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
         return
@@ -87,12 +105,15 @@ export function SwipeDeck({
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault()
         triggerSwipe('watched')
+      } else if (e.key.toLowerCase() === 'v' && isRoomMode) {
+        e.preventDefault()
+        handleVetoClick()
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [triggerSwipe, roundIndex, roundLimit, hasRoundLimit, movies])
+  }, [triggerSwipe, handleVetoClick, roundIndex, roundLimit, hasRoundLimit, movies, isRoomMode])
 
   // Touch & Mouse Handlers
   const handleStart = (clientX: number, clientY: number) => {
@@ -113,50 +134,48 @@ export function SwipeDeck({
     isPointerDown.current = false
     setIsDragging(false)
 
-    const threshold = 100
-    if (dragOffset.x > threshold) {
+    const thresholdX = window.innerWidth * 0.25
+    const thresholdY = window.innerHeight * 0.2
+
+    if (dragOffset.x > thresholdX) {
       triggerSwipe('like')
-    } else if (dragOffset.x < -threshold) {
+    } else if (dragOffset.x < -thresholdX) {
       triggerSwipe('pass')
+    } else if (dragOffset.y > thresholdY && isRoomMode && remainingVetoes > 0) {
+      handleVetoClick()
+    } else if (dragOffset.y < -thresholdY) {
+      triggerSwipe('watched')
     } else {
-      // Snap back to center
       setDragOffset({ x: 0, y: 0 })
     }
   }
 
-  // Check if round limit reached (only applicable when hasRoundLimit is true)
-  const isRoundComplete = hasRoundLimit && (roundIndex >= roundLimit || (movies.length > 0 && roundIndex >= movies.length))
-
-  // If a parent provided onRoundComplete (like Cold Start), trigger it immediately
-  useEffect(() => {
-    if (isRoundComplete && onRoundComplete) {
-      onRoundComplete()
-    }
-  }, [isRoundComplete, onRoundComplete])
-
-  if (isRoundComplete) {
-    if (onRoundComplete) {
-      return null // Transitioning to result screen
-    }
-
+  // End of Round (25 Movies Limit) in Room Mode
+  if (hasRoundLimit && roundIndex >= roundLimit) {
+    onRoundComplete?.()
     return (
       <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
-        <div className="w-20 h-20 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mb-5 text-amber-400 shadow-xl shadow-amber-400/10">
-          <Sparkles className="w-10 h-10" />
+        <div className="w-16 h-16 rounded-full bg-red-600/20 text-red-500 flex items-center justify-center mb-4">
+          <Sparkles className="w-8 h-8" />
         </div>
-        <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-xs font-semibold text-zinc-300 mb-3">
-          {roundNumber}. Tur Tamamlandı
-        </div>
-        <h3 className="text-2xl font-black text-white mb-2">
-          {isRoomMode ? 'Henüz Eşleşme Yok' : 'Tur Tamamlandı!'}
-        </h3>
-        <p className="text-sm text-zinc-400 max-w-xs mb-8 leading-relaxed">
-          {isRoomMode
-            ? `Bu turdaki ${roundLimit} filmi tamamladınız. Partnerinizle ortak bir filmde buluşmak için yeni bir tur başlatabilirsiniz!`
-            : `Bu turdaki ${roundLimit} filmi tamamladınız. Zevkinize uygun yeni filmlerle devam edebilirsiniz!`}
+        <h3 className="text-xl font-bold text-white mb-2">Bu Tur Bitti!</h3>
+        <p className="text-sm text-zinc-400 mb-6">
+          Tur {roundNumber} tamamlandı. Ortak beğendiğiniz bir film henüz çıkmadıysa alternatifleri oylayabilir veya yeni bir tur başlatabilirsiniz.
         </p>
 
         <div className="flex flex-col gap-3 w-full max-w-xs">
+          {/* Fallback Voting Button */}
+          {isRoomMode && onOpenFallback && (
+            <button
+              onClick={onOpenFallback}
+              className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-black font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-amber-500/25 transition-transform active:scale-98 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Trophy className="w-4 h-4" />
+              <span>Alternatifleri Oyla (Fallback)</span>
+            </button>
+          )}
+
+          {/* Next Round Button */}
           <button
             onClick={() => {
               setRoundIndex(0)
@@ -252,6 +271,7 @@ export function SwipeDeck({
             isTopCard={false}
             dragOffset={{ x: 0, y: 0 }}
             isDragging={false}
+            onOpenDetails={onOpenDetails}
           />
         )}
 
@@ -262,20 +282,41 @@ export function SwipeDeck({
           isTopCard={true}
           dragOffset={dragOffset}
           isDragging={isDragging}
+          onOpenDetails={onOpenDetails}
         />
       </div>
 
-      {/* Centered 3 Action Buttons Toolbar */}
-      <div className="flex items-center justify-center gap-6 py-2 z-30">
+      {/* Centered Action Buttons Toolbar */}
+      <div className="flex items-center justify-center gap-4 sm:gap-6 py-2 z-30">
         {/* Pass Button */}
         <button
           type="button"
           onClick={() => triggerSwipe('pass')}
-          className="w-14 h-14 rounded-full bg-zinc-900 border-2 border-rose-500/50 text-rose-500 hover:bg-rose-500/10 hover:border-rose-500 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer"
+          className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-rose-500/50 text-rose-500 hover:bg-rose-500/10 hover:border-rose-500 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer"
           title="Pas (Geç)"
         >
-          <X className="w-7 h-7" strokeWidth={2.5} />
+          <X className="w-6 h-6" strokeWidth={2.5} />
         </button>
+
+        {/* Veto Button (In Room Mode) */}
+        {isRoomMode && (
+          <button
+            type="button"
+            disabled={remainingVetoes <= 0}
+            onClick={handleVetoClick}
+            className={`relative w-13 h-13 rounded-full bg-zinc-900 border-2 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer ${
+              remainingVetoes > 0
+                ? 'border-red-600/60 text-red-500 hover:bg-red-500/10 hover:border-red-500'
+                : 'border-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
+            }`}
+            title={`Veto Et (Kalan: ${remainingVetoes})`}
+          >
+            <Ban className="w-5 h-5 stroke-[2.5]" />
+            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white font-mono font-bold text-[10px] flex items-center justify-center shadow">
+              {remainingVetoes}
+            </span>
+          </button>
+        )}
 
         {/* Watched Button */}
         <button
@@ -284,7 +325,7 @@ export function SwipeDeck({
           className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-purple-500/50 text-purple-400 hover:bg-purple-500/10 hover:border-purple-400 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer"
           title="İzledim"
         >
-          <Eye className="w-6 h-6" strokeWidth={2.2} />
+          <Eye className="w-5 h-5 stroke-[2.2]" />
         </button>
 
         {/* Like Button */}
@@ -299,10 +340,15 @@ export function SwipeDeck({
       </div>
 
       {/* Keyboard Shortcut Hints (Desktop) */}
-      <div className="flex items-center justify-center gap-8 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
+      <div className="flex items-center justify-center gap-6 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
         <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
           <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">←</kbd> Pas
         </span>
+        {isRoomMode && (
+          <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
+            <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">V</kbd> Veto ({remainingVetoes})
+          </span>
+        )}
         <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
           <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">↓ / ↑</kbd> İzledim
         </span>

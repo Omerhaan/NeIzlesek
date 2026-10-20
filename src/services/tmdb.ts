@@ -166,14 +166,47 @@ export async function fetchMovieProviders(movieId: number): Promise<StreamingPro
   }
 }
 
+export function formatRuntime(minutes?: number): string {
+  if (!minutes || minutes <= 0) return ''
+  const hours = Math.floor(minutes / 60)
+  const mins = minutes % 60
+  if (hours > 0) {
+    return mins > 0 ? `${hours} sa ${mins} dk` : `${hours} sa`
+  }
+  return `${mins} dk`
+}
+
 export async function fetchMovieDetails(movieId: number): Promise<Movie | null> {
   try {
-    const url = `${BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=tr-TR`
+    const url = `${BASE_URL}/movie/${movieId}?api_key=${TMDB_API_KEY}&language=tr-TR&append_to_response=videos,credits&include_video_language=tr,en,null`
     const res = await fetch(url)
     if (!res.ok) return null
 
     const data = await res.json()
     const providers = await fetchMovieProviders(movieId)
+
+    // Find best trailer (prefer Turkish trailer, then English trailer, then any YouTube video)
+    const videos: any[] = data.videos?.results || []
+    let trailerKey: string | undefined
+
+    const trTrailer = videos.find(
+      (v) => v.site === 'YouTube' && v.type === 'Trailer' && v.iso_639_1 === 'tr'
+    )
+    const enTrailer = videos.find(
+      (v) => v.site === 'YouTube' && v.type === 'Trailer'
+    )
+    const anyTrailer = videos.find(
+      (v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser')
+    )
+    const fallbackVideo = videos.find((v) => v.site === 'YouTube')
+
+    trailerKey = (trTrailer || enTrailer || anyTrailer || fallbackVideo)?.key
+
+    // Director
+    const director = data.credits?.crew?.find((c: any) => c.job === 'Director')?.name
+
+    // Top 5 cast members
+    const cast = (data.credits?.cast || []).slice(0, 5).map((c: any) => c.name as string)
 
     return {
       id: data.id,
@@ -186,6 +219,10 @@ export async function fetchMovieDetails(movieId: number): Promise<Movie | null> 
       release_date: data.release_date || '',
       genre_ids: data.genres ? data.genres.map((g: any) => g.id) : [],
       providers,
+      runtime: data.runtime || undefined,
+      trailerKey,
+      director,
+      cast,
     }
   } catch (err) {
     console.error('Failed to fetch movie details:', err)

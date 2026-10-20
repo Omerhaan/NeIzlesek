@@ -8,6 +8,7 @@ interface MovieCardProps {
   isTopCard: boolean
   dragOffset: { x: number; y: number }
   isDragging: boolean
+  onOpenDetails?: (movie: Movie) => void
 }
 
 export function MovieCard({
@@ -15,6 +16,7 @@ export function MovieCard({
   isTopCard,
   dragOffset,
   isDragging,
+  onOpenDetails,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
 
@@ -28,7 +30,14 @@ export function MovieCard({
     : {}
 
   // Drag threshold for stamping feedback
-  const swipeDirection = dragOffset.x > 50 ? 'like' : dragOffset.x < -50 ? 'pass' : null
+  const swipeDirection =
+    dragOffset.y > 60 && Math.abs(dragOffset.x) < 40
+      ? 'veto'
+      : dragOffset.x > 50
+      ? 'like'
+      : dragOffset.x < -50
+      ? 'pass'
+      : null
 
   const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
 
@@ -72,6 +81,14 @@ export function MovieCard({
         </div>
       )}
 
+      {isTopCard && swipeDirection === 'veto' && (
+        <div
+          className="absolute top-10 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-sm pointer-events-none text-center animate-pulse z-30"
+        >
+          🚫 VETO
+        </div>
+      )}
+
       {/* Streaming Platform Badges (Top Right) */}
       {movie.providers && movie.providers.length > 0 && (
         <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1.5 rounded-full border border-white/10">
@@ -110,10 +127,14 @@ export function MovieCard({
             type="button"
             onClick={(e) => {
               e.stopPropagation()
-              setShowDetails((prev) => !prev)
+              if (onOpenDetails) {
+                onOpenDetails(movie)
+              } else {
+                setShowDetails((prev) => !prev)
+              }
             }}
-            className="p-2 rounded-full bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-zinc-700"
-            title="Detaylar"
+            className="p-2 rounded-full bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-zinc-700 shadow-md"
+            title="Detaylar & Fragman"
           >
             <Info className="w-5 h-5" />
           </button>

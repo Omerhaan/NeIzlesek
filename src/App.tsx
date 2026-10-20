@@ -6,6 +6,8 @@ import { FilterModal } from './components/FilterModal'
 import { NewsFeed } from './components/NewsFeed'
 import { UserProfile } from './components/UserProfile'
 import { OnboardingFlow } from './components/OnboardingFlow'
+import { FallbackModal } from './components/FallbackModal'
+import { MovieDetailModal } from './components/MovieDetailModal'
 import { BottomNav, type NavTab } from './components/BottomNav'
 import {
   getOrCreateUserId,
@@ -43,6 +45,9 @@ export function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [matchedMovie, setMatchedMovie] = useState<Movie | null>(null)
   const [isMatchOpen, setIsMatchOpen] = useState(false)
+  const [cardDetailMovie, setCardDetailMovie] = useState<Movie | null>(null)
+  const [isFallbackOpen, setIsFallbackOpen] = useState(false)
+  const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
 
   // Load movies from TMDb with comprehensive filters
   const loadMovies = useCallback(
@@ -104,22 +109,34 @@ export function App() {
     }
   }, [])
 
-  // Listen to Supabase Realtime when an active room is set
+  // Listen to Supabase Realtime when an active room is set (Matches & Vetoes)
   useEffect(() => {
     if (!room) return
 
-    const unsubscribe = subscribeToRoom(room.id, async (matchedMovieId) => {
-      const details = await fetchMovieDetails(matchedMovieId)
-      if (details) {
-        setMatchedMovie(details)
-        setIsMatchOpen(true)
+    const unsubscribe = subscribeToRoom(
+      room.id,
+      async (matchedMovieId) => {
+        const details = await fetchMovieDetails(matchedMovieId)
+        if (details) {
+          setMatchedMovie(details)
+          setIsMatchOpen(true)
+          setIsFallbackOpen(false)
+        }
+      },
+      (vetoedMovieId, vetoUserId) => {
+        if (vetoUserId !== userId) {
+          // Partner vetoed a movie: remove it from current deck immediately
+          setMovies((prev) => prev.filter((m) => m.id !== vetoedMovieId))
+          setPartnerVetoNotice('Partnerin bir filmi veto etti! 🚫')
+          setTimeout(() => setPartnerVetoNotice(null), 3000)
+        }
       }
-    })
+    )
 
     return () => {
       unsubscribe()
     }
-  }, [room])
+  }, [room, userId])
 
   const handleRoomCreatedOrJoined = (newRoom: Room) => {
     setRoom(newRoom)
@@ -202,6 +219,14 @@ export function App() {
         activeFilterCount={activeFilterCount}
       />
 
+      {/* Partner Veto Toast Notification */}
+      {partnerVetoNotice && (
+        <div className="absolute top-16 inset-x-4 z-40 bg-red-950/90 border border-red-500/50 text-red-200 py-2.5 px-4 rounded-2xl text-xs font-bold text-center shadow-xl shadow-red-950/50 backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-200 flex items-center justify-center gap-2">
+          <span>🚫</span>
+          <span>{partnerVetoNotice}</span>
+        </div>
+      )}
+
       {/* Main Content Area based on Active Tab */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {activeTab === 'news' && <NewsFeed />}
@@ -220,6 +245,8 @@ export function App() {
               hasRoundLimit={!!room}
               isRoomMode={!!room}
               totalSwipesCount={tasteProfile.totalSwipes}
+              onOpenDetails={setCardDetailMovie}
+              onOpenFallback={room ? () => setIsFallbackOpen(true) : undefined}
             />
           </div>
         )}
@@ -250,6 +277,30 @@ export function App() {
         currentFilters={filters}
         onApplyFilters={handleApplyFilters}
       />
+
+      {/* Movie Card Preview & Trailer Modal */}
+      <MovieDetailModal
+        movie={cardDetailMovie}
+        listType="preview"
+        isOpen={!!cardDetailMovie}
+        onClose={() => setCardDetailMovie(null)}
+        onSwipeFromModal={handleSwipe}
+        canVeto={!!room}
+      />
+
+      {/* Fallback Voting Modal (When no match after round) */}
+      {room && (
+        <FallbackModal
+          roomId={room.id}
+          isOpen={isFallbackOpen}
+          onClose={() => setIsFallbackOpen(false)}
+          onSelectMovie={(movie) => {
+            setMatchedMovie(movie)
+            setIsMatchOpen(true)
+            setIsFallbackOpen(false)
+          }}
+        />
+      )}
 
       {/* Match Celebration Modal */}
       <MatchModal

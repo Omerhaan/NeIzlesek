@@ -15,6 +15,10 @@ export interface Movie {
   release_date: string
   genre_ids: number[]
   providers?: StreamingProvider[]
+  runtime?: number // in minutes
+  trailerKey?: string // YouTube video ID
+  director?: string
+  cast?: string[]
 }
 
 export type SwipeAction = 'pass' | 'like' | 'superlike' | 'watched' | 'veto'

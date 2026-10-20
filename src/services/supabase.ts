@@ -68,32 +68,99 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
   return data as Room
 }
 
-// Record a swipe action
+// Record a swipe action with duplicate protection
 export async function recordSwipe(
   roomId: string,
   userId: string,
   movieId: number,
   action: SwipeAction
 ): Promise<void> {
-  const { error } = await supabase.from('room_swipes').insert([
-    {
-      room_id: roomId,
-      user_id: userId,
-      movie_id: movieId,
-      action: action,
-    },
-  ])
+  try {
+    // Attempt upsert with onConflict on (room_id, user_id, movie_id)
+    const { error } = await supabase.from('room_swipes').upsert(
+      [
+        {
+          room_id: roomId,
+          user_id: userId,
+          movie_id: movieId,
+          action: action,
+        },
+      ],
+      { onConflict: 'room_id,user_id,movie_id' }
+    )
+
+    if (error) {
+      // Fallback standard insert if table doesn't have unique constraint yet
+      const { error: insertErr } = await supabase.from('room_swipes').insert([
+        {
+          room_id: roomId,
+          user_id: userId,
+          movie_id: movieId,
+          action: action,
+        },
+      ])
+      if (insertErr) {
+        console.error('Error recording swipe:', insertErr)
+      }
+    }
+  } catch (err) {
+    console.error('Record swipe exception:', err)
+  }
+}
+
+// Fetch un-vetoed, most liked candidate movie IDs for fallback matching
+export async function fetchRoomFallbackCandidates(roomId: string): Promise<number[]> {
+  try {
+    const { data, error } = await supabase
+      .from('room_swipes')
+      .select('movie_id, action, user_id')
+      .eq('room_id', roomId)
+
+    if (error || !data) return []
+
+    // Collect vetoed movies and liked counts
+    const vetoedIds = new Set<number>()
+    const likeCounts: Record<number, number> = {}
+
+    for (const s of data) {
+      if (s.action === 'veto') {
+        vetoedIds.add(s.movie_id)
+      } else if (s.action === 'like') {
+        likeCounts[s.movie_id] = (likeCounts[s.movie_id] || 0) + 1
+      }
+    }
+
+    // Filter out vetoed movies and sort by likes
+    const candidateIds = Object.keys(likeCounts)
+      .map(Number)
+      .filter((id) => !vetoedIds.has(id))
+      .sort((a, b) => likeCounts[b] - likeCounts[a])
+
+    return candidateIds.slice(0, 3)
+  } catch (err) {
+    console.error('Failed to fetch fallback candidates:', err)
+    return []
+  }
+}
+
+// Manually trigger matched movie for a room (e.g. from fallback voting)
+export async function setRoomMatchedMovie(roomId: string, movieId: number): Promise<void> {
+  const { error } = await supabase
+    .from('match_rooms')
+    .update({ status: 'matched', matched_movie_id: movieId })
+    .eq('id', roomId)
 
   if (error) {
-    console.error('Error recording swipe:', error)
+    console.error('Error updating matched movie in room:', error)
     throw new Error(error.message)
   }
 }
 
-// Subscribe to real-time changes in a room
+// Subscribe to real-time changes in a room (Match status + Veto events)
 export function subscribeToRoom(
   roomId: string,
-  onMatch: (matchedMovieId: number) => void
+  onMatch: (matchedMovieId: number) => void,
+  onVeto?: (vetoedMovieId: number, vetoUserId: string) => void
 ) {
   const channel = supabase
     .channel(`room_${roomId}`)
@@ -109,6 +176,21 @@ export function subscribeToRoom(
         const newRecord = payload.new as Room
         if (newRecord.status === 'matched' && newRecord.matched_movie_id) {
           onMatch(newRecord.matched_movie_id)
+        }
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'room_swipes',
+        filter: `room_id=eq.${roomId}`,
+      },
+      (payload) => {
+        const swipe = payload.new as { movie_id: number; action: string; user_id: string }
+        if (swipe && swipe.action === 'veto' && onVeto) {
+          onVeto(swipe.movie_id, swipe.user_id)
         }
       }
     )
