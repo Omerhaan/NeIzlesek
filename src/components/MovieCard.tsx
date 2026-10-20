@@ -1,7 +1,7 @@
-import { useState } from 'react'
-import { Star, Info, Calendar } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Star, Info, Calendar, Film } from 'lucide-react'
 import type { Movie } from '../types'
-import { IMAGE_BASE_URL, LOGO_BASE_URL } from '../services/tmdb'
+import { IMAGE_BASE_URL, BACKDROP_BASE_URL, LOGO_BASE_URL } from '../services/tmdb'
 
 interface MovieCardProps {
   movie: Movie
@@ -19,6 +19,35 @@ export function MovieCard({
   onOpenDetails,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
+  const [imgSrc, setImgSrc] = useState<string>(() => {
+    if (movie.poster_path) return `${IMAGE_BASE_URL}${movie.poster_path}`
+    if (movie.backdrop_path) return `${BACKDROP_BASE_URL}${movie.backdrop_path}`
+    return ''
+  })
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [hasError, setHasError] = useState(false)
+
+  // Reset and update image source whenever movie changes
+  useEffect(() => {
+    setIsLoaded(false)
+    setHasError(false)
+    if (movie.poster_path) {
+      setImgSrc(`${IMAGE_BASE_URL}${movie.poster_path}`)
+    } else if (movie.backdrop_path) {
+      setImgSrc(`${BACKDROP_BASE_URL}${movie.backdrop_path}`)
+    } else {
+      setHasError(true)
+    }
+  }, [movie.id, movie.poster_path, movie.backdrop_path])
+
+  const handleImageError = () => {
+    // If primary poster failed, try backdrop image as fallback
+    if (movie.backdrop_path && imgSrc !== `${BACKDROP_BASE_URL}${movie.backdrop_path}`) {
+      setImgSrc(`${BACKDROP_BASE_URL}${movie.backdrop_path}`)
+    } else {
+      setHasError(true)
+    }
+  }
 
   // Compute rotation and translation if it's the top card being dragged
   const rotation = isTopCard ? (dragOffset.x / 15) : 0
@@ -48,13 +77,48 @@ export function MovieCard({
         isTopCard ? 'z-20 cursor-grab active:cursor-grabbing' : 'z-10 scale-[0.96] -translate-y-3 opacity-80'
       }`}
     >
-      {/* Background Poster Image */}
-      <img
-        src={`${IMAGE_BASE_URL}${movie.poster_path}`}
-        alt={movie.title}
-        draggable={false}
-        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-      />
+      {/* Background Poster Image / Skeleton / Fallback */}
+      {!hasError && imgSrc ? (
+        <>
+          {/* Skeleton Shimmer while loading */}
+          {!isLoaded && (
+            <div className="absolute inset-0 w-full h-full bg-zinc-800/80 animate-pulse flex items-center justify-center">
+              <Film className="w-12 h-12 text-zinc-600 animate-bounce" />
+            </div>
+          )}
+
+          <img
+            src={imgSrc}
+            alt={movie.title}
+            draggable={false}
+            loading={isTopCard ? 'eager' : 'lazy'}
+            fetchPriority={isTopCard ? 'high' : 'auto'}
+            onLoad={() => setIsLoaded(true)}
+            onError={handleImageError}
+            className={`absolute inset-0 w-full h-full object-cover select-none pointer-events-none transition-opacity duration-300 ${
+              isLoaded ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+        </>
+      ) : (
+        /* Cinematic fallback when poster is missing or fails to load */
+        <div className="absolute inset-0 w-full h-full bg-gradient-to-br from-zinc-800 via-zinc-900 to-black flex flex-col items-center justify-center p-8 text-center select-none pointer-events-none">
+          <div className="w-20 h-20 rounded-2xl bg-zinc-800/80 border border-zinc-700/60 flex items-center justify-center mb-4 text-zinc-400 shadow-inner">
+            <Film className="w-10 h-10 stroke-[1.5]" />
+          </div>
+          <span className="text-2xl font-black text-white leading-tight line-clamp-3 mb-2">
+            {movie.title}
+          </span>
+          {movie.original_title && movie.original_title !== movie.title && (
+            <span className="text-xs text-zinc-400 italic line-clamp-1 mb-2">
+              {movie.original_title}
+            </span>
+          )}
+          <span className="text-[11px] text-zinc-500 font-medium px-3 py-1 bg-zinc-900/80 rounded-full border border-zinc-800">
+            Afiş Bağlantısı Bekleniyor
+          </span>
+        </div>
+      )}
 
       {/* Subtle top shadow */}
       <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />

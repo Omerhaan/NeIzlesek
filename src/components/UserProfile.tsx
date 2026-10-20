@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { createRoom, getRoomByCode } from '../services/supabase'
 import type { Room, Movie } from '../types'
-import { IMAGE_BASE_URL } from '../services/tmdb'
+import { IMAGE_BASE_URL, BACKDROP_BASE_URL } from '../services/tmdb'
 import {
   removeLikedMovie,
   markMovieAsWatched,
@@ -398,6 +398,12 @@ export function UserProfile({
                     <img
                       src={`${IMAGE_BASE_URL}${movie.poster_path}`}
                       alt={movie.title}
+                      loading="lazy"
+                      onError={(e) => {
+                        if (movie.backdrop_path && !e.currentTarget.src.includes(movie.backdrop_path)) {
+                          e.currentTarget.src = `${BACKDROP_BASE_URL}${movie.backdrop_path}`
+                        }
+                      }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80" />
@@ -464,6 +470,12 @@ export function UserProfile({
                     <img
                       src={`${IMAGE_BASE_URL}${movie.poster_path}`}
                       alt={movie.title}
+                      loading="lazy"
+                      onError={(e) => {
+                        if (movie.backdrop_path && !e.currentTarget.src.includes(movie.backdrop_path)) {
+                          e.currentTarget.src = `${BACKDROP_BASE_URL}${movie.backdrop_path}`
+                        }
+                      }}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80" />

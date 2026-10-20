@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { X, Heart, Eye, RotateCcw, Sparkles, Ban, Trophy } from 'lucide-react'
 import type { Movie, SwipeAction } from '../types'
+import { IMAGE_BASE_URL } from '../services/tmdb'
 import { MovieCard } from './MovieCard'
 
 interface SwipeDeckProps {
@@ -53,6 +54,18 @@ export function SwipeDeck({
       onLoadNextRound()
     }
   }, [hasRoundLimit, movies.length, roundIndex, isLoading, onLoadNextRound])
+
+  // Preload upcoming movie posters in memory for instant card rendering
+  useEffect(() => {
+    if (!movies || movies.length === 0) return
+    const nextMovies = movies.slice(roundIndex, roundIndex + 4)
+    nextMovies.forEach((m) => {
+      if (m.poster_path) {
+        const img = new Image()
+        img.src = `${IMAGE_BASE_URL}${m.poster_path}`
+      }
+    })
+  }, [roundIndex, movies])
 
   const triggerSwipe = useCallback(
     (action: SwipeAction) => {
