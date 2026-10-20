@@ -49,25 +49,88 @@ export function App() {
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
 
-  // Load movies from TMDb with comprehensive filters
+  const tasteProfileRef = useRef(tasteProfile)
+  tasteProfileRef.current = tasteProfile
+
+  const moviesRef = useRef(movies)
+  moviesRef.current = movies
+
+  // Load movies from TMDb with duplicate & already swiped movie exclusion
   const loadMovies = useCallback(
     async (pageNum: number, currentFilters: FilterState, append = false, limit = 20) => {
       setIsLoading(true)
       try {
-        // If genreId is 0 and we are in room or personalized mode, consider user's top genre
+        const currentProfile = tasteProfileRef.current
+
+        // If genreId is 0 and we are in room mode, consider user's top genre
         const effectiveFilters: FilterState = { ...currentFilters }
         if (effectiveFilters.genreId === 0 && room) {
-          const topUserGenres = getTopGenreIds(tasteProfile, 1)
+          const topUserGenres = getTopGenreIds(currentProfile, 1)
           if (topUserGenres.length > 0) {
             effectiveFilters.genreId = topUserGenres[0]
           }
         }
 
-        const fetched = await fetchFilteredMovies(pageNum, effectiveFilters)
+        // Strictly exclude movies already liked or watched by the user
+        const mustExcludeIds = new Set<number>([
+          ...(currentProfile.likedMovies || []).map((m) => m.id),
+          ...(currentProfile.watchedMovieIds || []),
+          ...(currentProfile.watchedMovies || []).map((w) => w.movie.id),
+        ])
+
+        // Also exclude passed movies so user sees un-swiped content
+        const passedIds = new Set<number>(currentProfile.passedMovieIds || [])
+
+        // If appending to existing deck, also exclude movies already present in deck
+        if (append && moviesRef.current) {
+          for (const m of moviesRef.current) {
+            mustExcludeIds.add(m.id)
+          }
+        }
+
+        let currentPage = pageNum
+        const accumulated: Movie[] = []
+        let maxPagesToScan = 8 // Scan up to 8 TMDb pages if needed to find un-swiped movies
+
+        while (accumulated.length < limit && maxPagesToScan > 0) {
+          const fetched = await fetchFilteredMovies(currentPage, effectiveFilters)
+          if (!fetched || fetched.length === 0) break
+
+          for (const movie of fetched) {
+            // Strictly exclude liked/watched, and prefer un-passed
+            if (!mustExcludeIds.has(movie.id) && !passedIds.has(movie.id)) {
+              mustExcludeIds.add(movie.id)
+              accumulated.push(movie)
+              if (accumulated.length >= limit) break
+            }
+          }
+
+          currentPage++
+          maxPagesToScan--
+        }
+
+        // Fallback: if not enough fresh movies, allow passed movies (but NEVER liked or watched)
+        if (accumulated.length < limit) {
+          let fallbackPage = 1
+          let fallbackMax = 4
+          while (accumulated.length < limit && fallbackMax > 0) {
+            const fetched = await fetchFilteredMovies(fallbackPage, effectiveFilters)
+            if (!fetched || fetched.length === 0) break
+            for (const movie of fetched) {
+              if (!mustExcludeIds.has(movie.id)) {
+                mustExcludeIds.add(movie.id)
+                accumulated.push(movie)
+                if (accumulated.length >= limit) break
+              }
+            }
+            fallbackPage++
+            fallbackMax--
+          }
+        }
 
         // Enrich the top 6 movies with streaming providers immediately
         const enriched = await Promise.all(
-          fetched.slice(0, limit).map(async (m, idx) => {
+          accumulated.map(async (m, idx) => {
             if (idx < 6) {
               const providers = await fetchMovieProviders(m.id)
               return { ...m, providers }
@@ -77,14 +140,14 @@ export function App() {
         )
 
         setMovies((prev) => (append ? [...prev, ...enriched] : enriched))
-        setPage(pageNum)
+        setPage(currentPage)
       } catch (err) {
         console.error('Failed to load movies:', err)
       } finally {
         setIsLoading(false)
       }
     },
-    [room, tasteProfile]
+    [room]
   )
 
   // Initialize movies on mount or when filters / room change
@@ -235,6 +298,7 @@ export function App() {
           <div className="flex-1 flex flex-col overflow-hidden">
             {/* Swipe Deck with infinite solo mode or 25-film room limit */}
             <SwipeDeck
+              key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
               movies={movies}
               onSwipe={handleSwipe}
               onLoadNextRound={handleLoadNextRound}
