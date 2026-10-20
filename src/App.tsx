@@ -14,6 +14,8 @@ import {
   recordSwipe,
   subscribeToRoom,
   getRoomByCode,
+  setRoomDeck,
+  fetchRoomSwipesCount,
 } from './services/supabase'
 import {
   fetchFilteredMovies,
@@ -48,6 +50,7 @@ export function App() {
   const [cardDetailMovie, setCardDetailMovie] = useState<Movie | null>(null)
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
+  const [partnerSwipesCount, setPartnerSwipesCount] = useState(0)
 
   const tasteProfileRef = useRef(tasteProfile)
   tasteProfileRef.current = tasteProfile
@@ -172,9 +175,14 @@ export function App() {
     }
   }, [])
 
-  // Listen to Supabase Realtime when an active room is set (Matches & Vetoes)
+  // Listen to Supabase Realtime when an active room is set (Matches, Vetoes, Swipes)
   useEffect(() => {
     if (!room) return
+
+    // Fetch initial partner swipe count
+    fetchRoomSwipesCount(room.id, userId).then(({ partnerCount }) => {
+      setPartnerSwipesCount(partnerCount)
+    })
 
     const unsubscribe = subscribeToRoom(
       room.id,
@@ -193,6 +201,10 @@ export function App() {
           setPartnerVetoNotice('Partnerin bir filmi veto etti! 🚫')
           setTimeout(() => setPartnerVetoNotice(null), 3000)
         }
+      },
+      () => {
+        // Partner swiped on a movie: increment partner count live
+        setPartnerSwipesCount((prev) => prev + 1)
       }
     )
 
@@ -201,16 +213,47 @@ export function App() {
     }
   }, [room, userId])
 
-  const handleRoomCreatedOrJoined = (newRoom: Room) => {
+  const handleRoomCreatedOrJoined = async (newRoom: Room) => {
     setRoom(newRoom)
     setRoundNumber(1)
-    // Curate 25 movies specifically for this room
-    loadMovies(1, filters, false, 25)
+    setPartnerSwipesCount(0)
+
+    if (newRoom.room_deck && newRoom.room_deck.length > 0) {
+      // Partner joined: load identical 25 movies saved in room_deck
+      setIsLoading(true)
+      try {
+        const details = await Promise.all(
+          newRoom.room_deck.map((id) => fetchMovieDetails(id))
+        )
+        const valid = details.filter((m): m is Movie => m !== null)
+        setMovies(valid)
+      } catch (err) {
+        console.error('Error loading room deck:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    } else {
+      // Creator created room: curate 25 movies and persist to room_deck in Supabase
+      setIsLoading(true)
+      try {
+        const fetched = await fetchFilteredMovies(1, filters)
+        const deck25 = fetched.slice(0, 25)
+        const movieIds = deck25.map((m) => m.id)
+        setMovies(deck25)
+        await setRoomDeck(newRoom.id, movieIds)
+        setRoom({ ...newRoom, room_deck: movieIds })
+      } catch (err) {
+        console.error('Error creating room deck:', err)
+      } finally {
+        setIsLoading(false)
+      }
+    }
   }
 
   const handleLeaveRoom = () => {
     setRoom(null)
     setRoundNumber(1)
+    setPartnerSwipesCount(0)
     window.history.replaceState({}, '', window.location.pathname)
     // Revert to infinite solo discovery mode
     loadMovies(1, filters, false, 20)
@@ -231,12 +274,24 @@ export function App() {
     }
   }
 
-  const handleLoadNextRound = () => {
+  const handleLoadNextRound = async () => {
     const nextPage = page + 1
     if (room) {
-      // In room mode: load next 25-film round
+      // In room mode: curate next 25-film round and sync room_deck
       setRoundNumber((prev) => prev + 1)
-      loadMovies(nextPage, filters, false, 25)
+      setPartnerSwipesCount(0)
+      setIsLoading(true)
+      try {
+        const fetched = await fetchFilteredMovies(nextPage, filters)
+        const deck25 = fetched.slice(0, 25)
+        const movieIds = deck25.map((m) => m.id)
+        setMovies(deck25)
+        await setRoomDeck(room.id, movieIds)
+      } catch (err) {
+        console.error('Error loading next room round:', err)
+      } finally {
+        setIsLoading(false)
+      }
     } else {
       // In solo mode: append more movies seamlessly (infinite feed)
       loadMovies(nextPage, filters, true, 20)
@@ -311,6 +366,7 @@ export function App() {
               totalSwipesCount={tasteProfile.totalSwipes}
               onOpenDetails={setCardDetailMovie}
               onOpenFallback={room ? () => setIsFallbackOpen(true) : undefined}
+              partnerSwipesCount={partnerSwipesCount}
             />
           </div>
         )}

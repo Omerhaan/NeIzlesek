@@ -68,7 +68,7 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
   return data as Room
 }
 
-// Record a swipe action with duplicate protection
+// Record a swipe action using the Supabase schema's user_name column
 export async function recordSwipe(
   roomId: string,
   userId: string,
@@ -76,35 +76,83 @@ export async function recordSwipe(
   action: SwipeAction
 ): Promise<void> {
   try {
-    // Attempt upsert with onConflict on (room_id, user_id, movie_id)
-    const { error } = await supabase.from('room_swipes').upsert(
-      [
-        {
-          room_id: roomId,
-          user_id: userId,
-          movie_id: movieId,
-          action: action,
-        },
-      ],
-      { onConflict: 'room_id,user_id,movie_id' }
-    )
+    const { error } = await supabase.from('room_swipes').insert([
+      {
+        room_id: roomId,
+        user_name: userId,
+        movie_id: movieId,
+        action: action,
+      },
+    ])
 
     if (error) {
-      // Fallback standard insert if table doesn't have unique constraint yet
-      const { error: insertErr } = await supabase.from('room_swipes').insert([
-        {
-          room_id: roomId,
-          user_id: userId,
-          movie_id: movieId,
-          action: action,
-        },
-      ])
-      if (insertErr) {
-        console.error('Error recording swipe:', insertErr)
+      console.error('Error recording swipe:', error)
+    }
+
+    // If action is 'like', check if partner also liked this movie as a fail-safe backup to DB trigger
+    if (action === 'like') {
+      const { data: partnerLikes } = await supabase
+        .from('room_swipes')
+        .select('id, user_name')
+        .eq('room_id', roomId)
+        .eq('movie_id', movieId)
+        .eq('action', 'like')
+        .neq('user_name', userId)
+        .limit(1)
+
+      if (partnerLikes && partnerLikes.length > 0) {
+        await setRoomMatchedMovie(roomId, movieId)
       }
     }
   } catch (err) {
     console.error('Record swipe exception:', err)
+  }
+}
+
+// Save the curated 25 movie IDs for the room so both devices get identical movies
+export async function setRoomDeck(roomId: string, movieIds: number[]): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('match_rooms')
+      .update({ room_deck: movieIds, status: 'active' })
+      .eq('id', roomId)
+
+    if (error) {
+      console.error('Error setting room deck:', error)
+    }
+  } catch (err) {
+    console.error('Exception setting room deck:', err)
+  }
+}
+
+// Fetch swipe counts for both current user and partner in a room
+export async function fetchRoomSwipesCount(
+  roomId: string,
+  myUserId: string
+): Promise<{ myCount: number; partnerCount: number }> {
+  try {
+    const { data, error } = await supabase
+      .from('room_swipes')
+      .select('user_name')
+      .eq('room_id', roomId)
+
+    if (error || !data) return { myCount: 0, partnerCount: 0 }
+
+    let myCount = 0
+    let partnerCount = 0
+
+    for (const row of data) {
+      if (row.user_name === myUserId) {
+        myCount++
+      } else {
+        partnerCount++
+      }
+    }
+
+    return { myCount, partnerCount }
+  } catch (err) {
+    console.error('Failed to fetch room swipes count:', err)
+    return { myCount: 0, partnerCount: 0 }
   }
 }
 
@@ -113,7 +161,7 @@ export async function fetchRoomFallbackCandidates(roomId: string): Promise<numbe
   try {
     const { data, error } = await supabase
       .from('room_swipes')
-      .select('movie_id, action, user_id')
+      .select('movie_id, action, user_name')
       .eq('room_id', roomId)
 
     if (error || !data) return []
@@ -152,16 +200,17 @@ export async function setRoomMatchedMovie(roomId: string, movieId: number): Prom
 
   if (error) {
     console.error('Error updating matched movie in room:', error)
-    throw new Error(error.message)
   }
 }
 
-// Subscribe to real-time changes in a room (Match status + Veto events)
+// Subscribe to real-time changes in a room (Match status, Vetoes, Swipe progress, + Polling fallback)
 export function subscribeToRoom(
   roomId: string,
   onMatch: (matchedMovieId: number) => void,
-  onVeto?: (vetoedMovieId: number, vetoUserId: string) => void
+  onVeto?: (vetoedMovieId: number, vetoUserId: string) => void,
+  onPartnerSwiped?: (partnerSwipeCount: number) => void
 ) {
+  // 1. Supabase Realtime channel
   const channel = supabase
     .channel(`room_${roomId}`)
     .on(
@@ -188,15 +237,38 @@ export function subscribeToRoom(
         filter: `room_id=eq.${roomId}`,
       },
       (payload) => {
-        const swipe = payload.new as { movie_id: number; action: string; user_id: string }
-        if (swipe && swipe.action === 'veto' && onVeto) {
-          onVeto(swipe.movie_id, swipe.user_id)
+        const swipe = payload.new as { movie_id: number; action: string; user_name: string }
+        if (swipe) {
+          if (swipe.action === 'veto' && onVeto) {
+            onVeto(swipe.movie_id, swipe.user_name)
+          }
+          if (onPartnerSwiped) {
+            onPartnerSwiped(1)
+          }
         }
       }
     )
     .subscribe()
 
+  // 2. Unbreakable polling fallback (every 2.5s) to guarantee matching even if Realtime is unavailable
+  const pollInterval = setInterval(async () => {
+    try {
+      const { data } = await supabase
+        .from('match_rooms')
+        .select('status, matched_movie_id')
+        .eq('id', roomId)
+        .single()
+
+      if (data && data.status === 'matched' && data.matched_movie_id) {
+        onMatch(data.matched_movie_id)
+      }
+    } catch {
+      // Ignore polling errors
+    }
+  }, 2500)
+
   return () => {
+    clearInterval(pollInterval)
     supabase.removeChannel(channel)
   }
 }

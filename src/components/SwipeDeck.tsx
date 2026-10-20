@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { X, Heart, Eye, RotateCcw, Sparkles, Ban, Trophy } from 'lucide-react'
+import { X, Heart, Eye, RotateCcw, Sparkles, Ban, Trophy, Users } from 'lucide-react'
 import type { Movie, SwipeAction } from '../types'
 import { IMAGE_BASE_URL } from '../services/tmdb'
 import { MovieCard } from './MovieCard'
@@ -18,6 +18,7 @@ interface SwipeDeckProps {
   totalSwipesCount?: number
   onOpenDetails?: (movie: Movie) => void
   onOpenFallback?: () => void
+  partnerSwipesCount?: number
 }
 
 export function SwipeDeck({
@@ -34,6 +35,7 @@ export function SwipeDeck({
   totalSwipesCount = 0,
   onOpenDetails,
   onOpenFallback,
+  partnerSwipesCount,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(0)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -166,6 +168,34 @@ export function SwipeDeck({
   // End of Round (25 Movies Limit) in Room Mode
   if (hasRoundLimit && roundIndex >= roundLimit) {
     onRoundComplete?.()
+
+    // If in room mode and partner hasn't finished all 25 movies yet, show live waiting screen
+    if (isRoomMode && partnerSwipesCount !== undefined && partnerSwipesCount < roundLimit) {
+      return (
+        <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-4 border border-amber-500/30 shadow-lg shadow-amber-500/10">
+            <Users className="w-8 h-8 animate-pulse" />
+          </div>
+          <h3 className="text-xl font-black text-white mb-1.5">Harika! 25 Filmi İnceledin</h3>
+          <p className="text-xs text-zinc-400 mb-6 max-w-xs leading-relaxed">
+            Seçimlerin kaydedildi. Partnerinin de turunu tamamlaması bekleniyor...
+          </p>
+
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 w-full max-w-xs mb-4 flex items-center justify-between shadow-md">
+            <span className="text-xs text-zinc-400 font-medium">Partnerinin İlerlemesi:</span>
+            <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+              {partnerSwipesCount} / {roundLimit} Film
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+            <Sparkles className="w-3.5 h-3.5 animate-spin text-amber-400" />
+            <span>Her iki taraf da bitirdiğinde sonuçlar açılacak</span>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
         <div className="w-16 h-16 rounded-full bg-red-600/20 text-red-500 flex items-center justify-center mb-4">
@@ -173,7 +203,9 @@ export function SwipeDeck({
         </div>
         <h3 className="text-xl font-bold text-white mb-2">Bu Tur Bitti!</h3>
         <p className="text-sm text-zinc-400 mb-6">
-          Tur {roundNumber} tamamlandı. Ortak beğendiğiniz bir film henüz çıkmadıysa alternatifleri oylayabilir veya yeni bir tur başlatabilirsiniz.
+          {isRoomMode
+            ? 'İkiniz de 25 filmi tamamladınız! Ortak beğeni çıkmadıysa en çok yaklaştığınız alternatifleri oylayabilirsiniz.'
+            : `Tur ${roundNumber} tamamlandı. Yeni bir tura başlayabilirsiniz.`}
         </p>
 
         <div className="flex flex-col gap-3 w-full max-w-xs">
