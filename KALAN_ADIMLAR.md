@@ -158,5 +158,59 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 
 ## 📌 Sıradaki Önerilen Aksiyon
 
-**Faz 3.5: Yerel migration ve oda akışını doğrula.**
-Oda alanı/tur sayaçları ile atomik deste RPC'leri kodda hazır. Sonraki adım, migration'ı mevcut Supabase şemasına karşı kontrol edip uygulamak ve iki cihazlı oda oluşturma, katılma, tur ilerletme, fallback ve eşleşme akışlarını doğrulamak. Ardından RLS/policy, README ve hata durumlarını tamamlayıp Faz 4'e geç.
+**Faz 3.5 Doğrulandı:** İki cihazlı oda oluşturma, katılma, atomik 25 film destesi ve canlı sayaç senkronizasyonu tamamlandı. Sonraki adım: Faz 4 PWA kurulumu (manifest, ikonlar, mobil tam ekran deneyimi) veya RLS güvenlik kuralları.
+
+---
+
+## 🛠️ Çözülen Hatalar ve Teknik Düzeltmeler Günlüğü (Bugfix & Changelog)
+
+Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hataları, kök nedenlerini ve uygulanan mimari çözümleri belgeler.
+
+### 1. Deste Boyutunun Mobilde 24'e Düşmesi ve Sayacın "24/25"te Takılması
+- **Belirti:** Bilgisayar 25 filmi bitirip ortak filmler/eşleşme ekranına geçtiğinde, telefonda "Partnerinin İlerlemesi: 24/25 Film bekleniyor" ekranı takılı kaldı.
+- **Kök Neden:** Partner odaya katıldığında 25 filmin fragman ve izleme sağlayıcıları dahil tüm detaylarını tek seferde 50 eşzamanlı HTTP isteğiyle TMDb'den çekiyordu. Mobilde 1. film (`969681`) ağ gecikmesi veya rate-limit nedeniyle `null` döndü ve `filter(m => m !== null)` filtresi 1. filmi eledi. Telefon 24 filmle başlayıp bitirdiği için veritabanına 24 swipe kaydoldu; bilgisayar 25 beklediği için sayaç 24/25'te kilitlendi.
+- **Çözüm:**
+  - Odaya katılırken detay istekleri hafifletildi (`includeProviders = false`).
+  - Ağ hatalarına karşı otomatik retry ve boş film objesi fallback'i eklendi; destedeki film sayısının asla 25'in altına düşmeyeceği garanti edildi.
+  - `SwipeDeck` bekleme ekranına `partnerSwipesCount >= effectiveLimit - 1` olduğunda kilitlenmeyi önleyen "Sonuçları ve Alternatifleri Aç →" butonu eklendi.
+
+### 2. Canlı Eşleşme (MatchModal) Bildiriminin Telefonda Tetiklenmemesi
+- **Belirti:** Odada eşleşen film çıktığı halde (`matched_movie_id`) bilgisayarda kutlama/sonuç açıldı ancak telefonda açılmadı.
+- **Kök Neden:** `App.tsx` içindeki `subscribeToRoom` dinleyicisinde `onMatch` callback'i geçici olarak boş bırakılmıştı.
+- **Çözüm:** Realtime `onMatch` dinleyicisi `setMatchedMovie(details)` ve `setIsMatchOpen(true)` ile doğrudan kutlama ekranına bağlandı. Ortak beğeni anında her iki cihazda eşzamanlı olarak patlaması sağlandı.
+
+### 3. Oda Kurma Sırasındaki Boş Deste ve Asenkron Yarış Durumu (Race Condition)
+- **Belirti:** Yeni oda kurulduğunda bazen deste boş görünüyor veya partner katıldığında iki taraf farklı filmler görüyordu.
+- **Kök Neden:** Önce boş bir oda (`room_deck: []`) oluşturuluyor, sonra 3-4 saniye TMDb'den film çekilip ikinci bir RPC isteğiyle kaydedilmeye çalışılıyordu. O sırada partner odaya bağlanırsa odayı boş buluyordu. Ayrıca `handleCreateRoom` içinde `onRoomCreatedOrJoined` `await` edilmediği için ekran yönlenmiyordu.
+- **Çözüm:**
+  - `createRoom(movieIds)` atomik hale getirildi: 25 film önce hazırlanıp tek bir SQL INSERT ile oda ve destesi aynı anda veritabanına yazıldı.
+  - Kurucu kullanıcı oda butonuna bastığı an "25 Özel Film Hazırlanıyor..." göstergesiyle doğrudan film ekranına yönlendirildi (`onNavigateToMatch`).
+  - `useEffect` dinleyicisi tüm oda nesnesi yerine `room?.id` kimliğine bağlandı; bağlantı kopmaları engellendi.
+
+### 4. 25 Film Bitince Uygulamanın "Ana Sayfaya Atması" ve Oda Oturumunun Kaybolması
+- **Belirti:** Kullanıcı 25 filmi bitirdiğinde veya sayfayı yenilediğinde (F5) oda kapandı ve tek kişilik ana sayfaya döndü.
+- **Kök Neden:** Oda durumu yalnızca React bellek state'inde tutuluyordu. Sayfa yenilendiğinde URL'de oda parametresi yoksa `room` `null`'a düşüyordu. Ayrıca dar filtrelerde TMDb 18 film dönünce `roundIndex = 18` oluyordu ama `roundLimit = 25` olduğu için `currentMovie` `undefined` kalarak ekran donuyordu.
+- **Çözüm:**
+  - Oda oturumu `sessionStorage` ve URL `?room=CODE` parametresine bağlandı; sayfa yenilense de odadan düşme engellendi.
+  - `effectiveLimit = Math.min(roundLimit, movies.length)` yapılarak destedeki film sayısı ne kadarsa turun o sayıda bitmesi sağlandı.
+  - Kullanıcının o turda kaydırdığı kart indeksi (`initialIndex`) Supabase'den çekilerek kaldığı karttan devam etmesi sağlandı.
+
+### 5. Sayaçta "12/25" Başlama ve Yanlış Partner Sayısı
+- **Belirti:** Kullanıcı yeni tura veya odaya başladığında partner henüz film kaydırmadan sayaç 12/25 gösteriyordu.
+- **Kök Neden:** Önceki testlerden kalan veya eski kodla kaydedilen (`round_number = 0`) swipe kayıtları `fetchRoomSwipesCount` tarafından sayılıyordu.
+- **Çözüm:** `fetchRoomSwipesCount` içinde `Set<number>` ile yalnızca o turun benzersiz film ID'leri sayıldı. Realtime ve 2.5 saniyelik periyodik polling senkronizasyonu ile iki cihazda canlı eşitlendi.
+
+### 6. Sayfa Yenilenince Hep Aynı Filmlerle Başlaması (Akış Kirliliği)
+- **Belirti:** Kullanıcı filmleri izledim/beğendim diye işaretleyip sayfayı yenilediğinde aynı filmler tekrar geliyordu.
+- **Kök Neden:** `loadMovies` TMDb'den sadece sayfa numarasına göre çekim yapıyordu; kullanıcının geçmiş seçimleri elenmiyordu.
+- **Çözüm:** `tasteProfile` içindeki `likedMovies`, `watchedMovieIds`, `passedMovieIds` kümesi oluşturularak TMDb sonuçlarından kesin olarak dışlandı (`mustExcludeIds`).
+
+### 7. Film Görsellerinin Yüklenememesi (Kırık Posterler)
+- **Belirti:** Bazı filmlerde afişler yüklenmiyor veya kırık ikon çıkıyordu.
+- **Kök Neden:** TMDb'de bazı filmlerin dikey posteri eksikti veya düşük bağlantıda görsel hataya düşüyordu.
+- **Çözüm:** `MovieArtwork` ortak bileşeni oluşturuldu; sırasıyla poster, backdrop, skeleton loading ve fallback yer tutucu afiş mantığı eklendi.
+
+### 8. Kart Kaydırma Sayacının İkişer İkişer Artması
+- **Belirti:** Tek bir film kaydırıldığında sayaç 2 2 artıyordu.
+- **Kök Neden:** React StrictMode altında çift mount ve dokunmatik/fare olaylarının çakışması.
+- **Çözüm:** Animasyon tamamlanana kadar swipe tetikleyicisi kilitlendi ve tekil güncelleme sağlandı.
