@@ -246,7 +246,7 @@ export function SwipeDeck({
               Sınırsız Keşif
             </span>
             <span className="text-zinc-400 text-[11px] font-medium">
-              🍿 <strong className="text-white">{totalSwipesCount + roundIndex}</strong> film incelendi
+              🍿 <strong className="text-white">{totalSwipesCount}</strong> film incelendi
             </span>
           </div>
         )}
