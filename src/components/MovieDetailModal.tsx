@@ -15,13 +15,12 @@ import {
 } from 'lucide-react'
 import type { Movie, SwipeAction } from '../types'
 import {
-  IMAGE_BASE_URL,
-  BACKDROP_BASE_URL,
   LOGO_BASE_URL,
   GENRES,
   formatRuntime,
   fetchMovieDetails,
 } from '../services/tmdb'
+import { MovieArtwork } from './MovieArtwork'
 
 interface MovieDetailModalProps {
   movie: Movie | null
@@ -147,10 +146,6 @@ export function MovieDetailModal({
     onClose()
   }
 
-  const bannerImg = detailedMovie.backdrop_path
-    ? `${BACKDROP_BASE_URL}${detailedMovie.backdrop_path}`
-    : `${IMAGE_BASE_URL}${detailedMovie.poster_path}`
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
       <div className="relative w-full max-w-md bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
@@ -193,10 +188,11 @@ export function MovieDetailModal({
             </div>
           ) : (
             <>
-              <img
-                src={bannerImg}
-                alt={detailedMovie.title}
+              <MovieArtwork
+                movie={detailedMovie}
+                preferBackdrop
                 className="w-full h-full object-cover"
+                loading="eager"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-black/30" />
 
@@ -214,9 +210,8 @@ export function MovieDetailModal({
 
               {/* Poster & Title Row */}
               <div className="absolute bottom-3 left-4 right-4 flex items-end gap-3 z-10">
-                <img
-                  src={`${IMAGE_BASE_URL}${detailedMovie.poster_path}`}
-                  alt={detailedMovie.title}
+                <MovieArtwork
+                  movie={detailedMovie}
                   className="w-16 h-24 rounded-xl object-cover shadow-2xl border-2 border-zinc-700/60 shrink-0"
                 />
                 <div className="flex-1 min-w-0 pb-1">

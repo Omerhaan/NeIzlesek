@@ -98,7 +98,6 @@ export async function recordSwipe(
         .select('id, user_name')
         .eq('room_id', roomId)
         .eq('movie_id', movieId)
-        .eq('round_number', roundNumber)
         .eq('action', 'like')
         .neq('user_name', userId)
         .limit(1)
@@ -153,24 +152,24 @@ export async function fetchRoomSwipesCount(
   try {
     const { data, error } = await supabase
       .from('room_swipes')
-      .select('user_name')
+      .select('user_name, movie_id')
       .eq('room_id', roomId)
       .eq('round_number', roundNumber)
 
     if (error || !data) return { myCount: 0, partnerCount: 0 }
 
-    let myCount = 0
-    let partnerCount = 0
+    const myMovies = new Set<number>()
+    const partnerMovies = new Set<number>()
 
     for (const row of data) {
       if (row.user_name === myUserId) {
-        myCount++
-      } else {
-        partnerCount++
+        myMovies.add(row.movie_id)
+      } else if (row.user_name) {
+        partnerMovies.add(row.movie_id)
       }
     }
 
-    return { myCount, partnerCount }
+    return { myCount: myMovies.size, partnerCount: partnerMovies.size }
   } catch (err) {
     console.error('Failed to fetch room swipes count:', err)
     return { myCount: 0, partnerCount: 0 }
@@ -180,23 +179,23 @@ export async function fetchRoomSwipesCount(
 // Fetch un-vetoed, most liked candidate movie IDs for fallback matching
 export async function fetchRoomFallbackCandidates(roomId: string, roundNumber: number): Promise<number[]> {
   try {
-    const { data, error } = await supabase
+    const { data: swipesData } = await supabase
       .from('room_swipes')
       .select('movie_id, action, user_name')
       .eq('room_id', roomId)
       .eq('round_number', roundNumber)
 
-    if (error || !data) return []
-
     // Collect vetoed movies and liked counts
     const vetoedIds = new Set<number>()
     const likeCounts: Record<number, number> = {}
 
-    for (const s of data) {
-      if (s.action === 'veto') {
-        vetoedIds.add(s.movie_id)
-      } else if (s.action === 'like') {
-        likeCounts[s.movie_id] = (likeCounts[s.movie_id] || 0) + 1
+    if (swipesData) {
+      for (const s of swipesData) {
+        if (s.action === 'veto') {
+          vetoedIds.add(s.movie_id)
+        } else if (s.action === 'like') {
+          likeCounts[s.movie_id] = (likeCounts[s.movie_id] || 0) + 1
+        }
       }
     }
 
@@ -206,7 +205,25 @@ export async function fetchRoomFallbackCandidates(roomId: string, roundNumber: n
       .filter((id) => !vetoedIds.has(id))
       .sort((a, b) => likeCounts[b] - likeCounts[a])
 
-    return candidateIds.slice(0, 3)
+    if (candidateIds.length > 0) {
+      return candidateIds.slice(0, 3)
+    }
+
+    // Fallback: If no liked movies, pick first 3 un-vetoed movies from current room deck
+    const { data: roomData } = await supabase
+      .from('match_rooms')
+      .select('room_deck')
+      .eq('id', roomId)
+      .single()
+
+    if (roomData?.room_deck && Array.isArray(roomData.room_deck)) {
+      const deckCandidates = (roomData.room_deck as number[])
+        .filter((id) => !vetoedIds.has(id))
+        .slice(0, 3)
+      return deckCandidates
+    }
+
+    return []
   } catch (err) {
     console.error('Failed to fetch fallback candidates:', err)
     return []
@@ -274,18 +291,23 @@ export function subscribeToRoom(
       (payload) => {
         const swipe = payload.new as { movie_id: number; action: string; user_name: string; round_number: number }
         if (swipe) {
-          if (swipe.round_number === roundNumber && swipe.user_name !== myUserId && swipe.action === 'veto' && onVeto) {
-            onVeto(swipe.movie_id, swipe.user_name)
-          }
-          if (swipe.round_number === roundNumber && swipe.user_name !== myUserId && onPartnerSwiped) {
-            onPartnerSwiped(1)
+          const isPartner = swipe.user_name && swipe.user_name !== myUserId
+          const isCurrentRound = Number(swipe.round_number) === Number(roundNumber)
+
+          if (isPartner && isCurrentRound) {
+            if (swipe.action === 'veto' && onVeto) {
+              onVeto(swipe.movie_id, swipe.user_name)
+            }
+            if (onPartnerSwiped) {
+              onPartnerSwiped(1)
+            }
           }
         }
       }
     )
     .subscribe()
 
-  // 2. Unbreakable polling fallback (every 2.5s) to guarantee matching even if Realtime is unavailable
+  // 2. Unbreakable polling fallback (every 2.5s) to guarantee matching and partner swipe sync even if Realtime is unavailable
   const pollInterval = setInterval(async () => {
     try {
       const { data } = await supabase
@@ -299,6 +321,12 @@ export function subscribeToRoom(
       }
       if (data?.round_number && data.round_number > roundNumber && data.room_deck?.length) {
         onRoundChanged?.(data.round_number, data.room_deck)
+      }
+
+      // Sync exact partner swipes count periodically
+      if (onPartnerSwiped) {
+        const { partnerCount } = await fetchRoomSwipesCount(roomId, myUserId, roundNumber)
+        onPartnerSwiped(partnerCount)
       }
     } catch {
       // Ignore polling errors

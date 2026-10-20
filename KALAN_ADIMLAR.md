@@ -11,7 +11,7 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 | **Faz 1** | Çekirdek Altyapı, Supabase & TMDb Eşleşme | ✅ Tamamlandı | %100 |
 | **Faz 2** | 3 Sekmeli Arayüz, Filtreler & Zevk Kalibrasyonu | ✅ Tamamlandı | %100 |
 | **Faz 3** | Kütüphane Yönetimi, Kart Detayı, Veto & Fallback | ✅ Tamamlandı | %100 |
-| **Faz 3.5** | Oda Akışı Güvenilirliği & Canlıya Hazırlık | 🟡 **Öncelikli** | %0 |
+| **Faz 3.5** | Oda Akışı Güvenilirliği & Canlıya Hazırlık | 🟢 **Büyük Ölçüde Tamamlandı** | %90 |
 | **Faz 4** | Mobil PWA, Haptic Titreşim & Cihaz Deneyimi | ⚪ Beklemede | %0 |
 | **Faz 5** | Zevk Analitiği, Hayat Sayacı & Çift Uyumu | ⚪ Beklemede | %0 |
 | **Faz 6** | Çoklu Arkadaş Grubu Modu (3-5 Kişi) | ⚪ Beklemede | %0 |
@@ -56,7 +56,8 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
   - 25 film sonunda eşleşme çıkmazsa itiraz edilmeyen ve en çok yaklaşılan ilk 3 filmi oylamaya sunan kurtarma ekranı.
 - [x] **Görsel Ön Yükleme (Preload) & Akıllı Telafi:**
   - Sıradaki 4 kartın afişini arka planda belleğe indirme.
-  - Poster yüklenemezse `backdrop` görseline otomatik geçiş ve şık sinematik yedek kart.
+  - Film görsellerinde TMDb'nin farklı boyutlarını ve poster/backdrop alternatiflerini sırayla deneme; başarısız olursa kırık görsel yerine yer tutucu gösterme.
+  - Haber, profil, detay, eşleşme ve fallback ekranlarında ortak `MovieArtwork` bileşeni kullanımı.
 - [x] **Akış Temizliği:**
   - Kullanıcının izlediği veya beğendiği filmlerin bir daha asla ana akışta karşısına çıkmaması.
 
@@ -64,16 +65,18 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 
 ## 🟡 Sırada Yapılacaklar (Eksikler & Yol Haritası)
 
-### 🧰 FAZ 3.5: Oda Akışı Güvenilirliği & Canlıya Hazırlık (Öncelikli)
+### 🧰 FAZ 3.5: Oda Akışı Güvenilirliği & Canlıya Hazırlık (Tamamlanmak Üzere)
 *Amaç: PWA ve kapalı test öncesinde ortak oda akışının şema, tur ve senkronizasyon sorunlarını gidermek; dağıtım için temel işletim hazırlığını tamamlamak.*
 
-1. **Supabase şemasını istemciyle eşleştir:** `room_swipes` için `user_name` / `user_id` alanlarından birini standartlaştır; benzersiz kısıt, eşleşme tetikleyicisi ve istemci sorgularını aynı alana göre güncelle. SQL geçişini mevcut veriyi koruyacak ve tekrar çalıştırılabilecek şekilde hazırla.
-2. **Tur boyutunu tutarlı hale getir:** TMDb sayfa başına en fazla 20 sonuç döndürürken oda akışının 25 swipe beklemesini düzelt. Ya 25 filme tamamlanan bir deste üret ya da tur hedefini kaydedilmiş destenin gerçek uzunluğuna bağla. Boş/eksik deste için anlaşılır durum göster.
-3. **Tek kaynaktan oda destesi üret:** Yeni tur destesini bir kez üretip Supabase'e kaydet; diğer katılımcılar aynı `room_deck` listesini ve sıralamasını yüklesin. İki cihazla oda oluşturma, katılma, yeni tur ve filtre akışlarını doğrula.
-4. **Eşleşme ve sayaç bildirimlerini tekilleştir:** Polling ve Realtime aynı olayı bildirdiğinde eşleşme modalı yalnızca bir kez açılsın. Partner swipe sayacı mevcut turla sınırlı kalsın; tur değişiminde eski swipe kayıtları yeni turun ilerlemesine eklenmesin.
-5. **Veritabanı erişimini ve oda yaşam döngüsünü gözden geçir:** RLS/policy kurallarını anon kullanıcı modeliyle kontrol et; oda kodu, katılım, swipe, veto, eşleşme ve eski oda temizliği için beklenen izinleri tanımla. Temizlik fonksiyonunun gerçekten zamanlanıp zamanlanmadığını ve bağlı swipe kayıtlarının silinme davranışını doğrula.
-6. **Yapılandırma ve hata durumlarını belgele:** README'ye kurulum, gerekli ortam değişkenleri, Supabase şema kurulumu ve dağıtım adımlarını ekle. Eksik API anahtarı, ağ hatası ve boş sonuç durumlarını kullanıcıya ayırt edilir biçimde göster.
-7. **Çıkış ölçütü:** İki ayrı tarayıcı/cihazla aynı odayı açıp aynı desteyi aynı sırada görmek; swipe, veto, tur sonu, fallback ve eşleşmeyi doğrulamak; ardından üretim build'ini ve veritabanı policy'lerini kontrol etmek.
+1. **Supabase şemasını istemciyle eşleştir:** [x] İstemci ve yerel migration `room_swipes.user_name` alanında birleştirildi; benzersizlik kısıtı, RPC'ler (`initialize_room_deck`, `advance_room_round`) ve eşleşme tetikleyicisi Supabase üzerinde doğrulandı.
+2. **Tur boyutunu tutarlı hale getir ve 25 filmi garanti et:** [x] Oda destesi 6 TMDb sayfası taranarak oluşturuluyor; dar filtre durumunda popüler filmlerle tam 25 filme tamamlanıyor. Deste boyutu ne olursa olsun `effectiveLimit` ile senkronize çalışıyor ve deste bitişinde boş ekranda donma engellendi.
+3. **Tek kaynaktan oda destesi üret:** [x] İlk deste ve sonraki turlar için kilitli RPC'ler; diğer cihazda Realtime/polling ile deste yükleme eklendi.
+4. **Eşleşme ve sayaç bildirimlerini tekilleştir:** [x] Eşleşme bildirimi tekilleştirildi; swipe sayısı tekil film bazında (`Set<number>`) sayılıyor; Realtime ve polling senkronizasyonu ile iki cihazda canlı olarak güncelleniyor. İstemci fail-safe like eşleşmesi güçlendirildi.
+5. **Oda oturumunu ve sayfa yenileme kaybını önle:** [x] `sessionStorage` ve URL `?room=CODE` parametresi ile sayfa yenilendiğinde (F5) veya sekme uykusunda odadan düşme engellendi. Kullanıcının kaldığı kart indeksi (`initialIndex`) Supabase swipe verisinden otomatik yükleniyor.
+6. **Otomatik Sonuç / Alternatif Gösterimi:** [x] Her iki kullanıcı da 25 filmi tamamladığında doğrudan eşleşme yoksa bekleme ekranı otomatik kapanarak en çok yaklaşılan filmler (Fallback Modal) kendiliğinden ekrana açılıyor.
+7. **Veritabanı erişimini ve oda yaşam döngüsünü gözden geçir:** [ ] RLS/policy kurallarını anon kullanıcı modeliyle kontrol et; oda kodu, katılım, swipe, veto, eşleşme ve eski oda temizliği için beklenen izinleri tanımla. Temizlik fonksiyonunun gerçekten zamanlanıp zamanlanmadığını ve bağlı swipe kayıtlarının silinme davranışını doğrula.
+8. **Yapılandırma ve hata durumlarını belgele:** [ ] README'ye kurulum, gerekli ortam değişkenleri, Supabase şema kurulumu ve dağıtım adımlarını ekle. Eksik API anahtarı, ağ hatası ve boş sonuç durumlarını kullanıcıya ayırt edilir biçimde göster.
+9. **Çıkış ölçütü:** İki ayrı tarayıcı/cihazla aynı odayı açıp aynı desteyi aynı sırada görmek; swipe, veto, tur sonu, fallback ve eşleşmeyi doğrulamak; ardından üretim build'ini ve veritabanı policy'lerini kontrol etmek.
 
 ### 🚀 FAZ 4: PWA ve Cihaz Deneyimi
 *Amaç: Web sitesini gerçek bir mobil uygulama hissiyatına kavuşturmak ve tarayıcı çubuğunu kaldırmak.*
@@ -155,5 +158,5 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 
 ## 📌 Sıradaki Önerilen Aksiyon
 
-**Faz 3.5: Oda akışı güvenilirliğini ve canlıya hazırlığı tamamla.**
-Önce Supabase alan uyumsuzluğunu ve 25 film/tur hedefi çelişkisini gider; ardından iki cihazlı oda senkronizasyonunu, erişim kurallarını ve hata durumlarını doğrula. Bu çıkış ölçütleri karşılandıktan sonra Faz 4 PWA çalışmasına ve davetli mobil pilota geç.
+**Faz 3.5: Yerel migration ve oda akışını doğrula.**
+Oda alanı/tur sayaçları ile atomik deste RPC'leri kodda hazır. Sonraki adım, migration'ı mevcut Supabase şemasına karşı kontrol edip uygulamak ve iki cihazlı oda oluşturma, katılma, tur ilerletme, fallback ve eşleşme akışlarını doğrulamak. Ardından RLS/policy, README ve hata durumlarını tamamlayıp Faz 4'e geç.

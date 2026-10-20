@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import confetti from 'canvas-confetti'
 import { Sparkles, Star, Film, X } from 'lucide-react'
 import type { Movie } from '../types'
-import { IMAGE_BASE_URL, LOGO_BASE_URL } from '../services/tmdb'
+import { LOGO_BASE_URL } from '../services/tmdb'
+import { MovieArtwork } from './MovieArtwork'
 
 interface MatchModalProps {
   movie: Movie | null
@@ -65,9 +66,8 @@ export function MatchModal({ movie, isOpen, onClose }: MatchModalProps) {
 
         {/* Movie Poster & Details */}
         <div className="relative mx-6 my-2 h-72 rounded-2xl overflow-hidden shadow-lg border border-zinc-800">
-          <img
-            src={`${IMAGE_BASE_URL}${movie.poster_path}`}
-            alt={movie.title}
+          <MovieArtwork
+            movie={movie}
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black via-black/30 to-transparent" />

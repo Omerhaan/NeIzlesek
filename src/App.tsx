@@ -20,6 +20,7 @@ import {
 } from './services/supabase'
 import {
   fetchFilteredMovies,
+  fetchPopularMovies,
   fetchMovieDetails,
   fetchMovieProviders,
   GENRES,
@@ -42,7 +43,8 @@ async function fetchRoomDeck(startPage: number, filters: FilterState): Promise<{
   let page = startPage
   let pagesScanned = 0
 
-  while (movies.length < ROOM_DECK_SIZE && pagesScanned < 4) {
+  // 1. Scan up to 6 TMDb pages to gather 25 unique movies matching user's filters
+  while (movies.length < ROOM_DECK_SIZE && pagesScanned < 6) {
     const batch = await fetchFilteredMovies(page, filters)
     if (batch.length === 0) break
     for (const movie of batch) {
@@ -53,6 +55,22 @@ async function fetchRoomDeck(startPage: number, filters: FilterState): Promise<{
     }
     page += 1
     pagesScanned += 1
+  }
+
+  // 2. Fallback: If strict filters yielded fewer than 25 movies, guarantee deck size with top popular movies
+  if (movies.length < ROOM_DECK_SIZE) {
+    let fallbackPage = 1
+    while (movies.length < ROOM_DECK_SIZE && fallbackPage <= 3) {
+      const fallbackBatch = await fetchPopularMovies(fallbackPage, filters.genreId)
+      if (!fallbackBatch || fallbackBatch.length === 0) break
+      for (const movie of fallbackBatch) {
+        if (seenIds.has(movie.id)) continue
+        seenIds.add(movie.id)
+        movies.push(movie)
+        if (movies.length >= ROOM_DECK_SIZE) break
+      }
+      fallbackPage += 1
+    }
   }
 
   return { movies, nextPage: page }
@@ -76,6 +94,7 @@ export function App() {
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
   const [partnerSwipesCount, setPartnerSwipesCount] = useState(0)
+  const [initialSwipeIndex, setInitialSwipeIndex] = useState(0)
   const roundNumberRef = useRef(roundNumber)
   roundNumberRef.current = roundNumber
 
@@ -187,15 +206,17 @@ export function App() {
     }
   }, [tasteProfile.isOnboarded, room, filters, loadMovies])
 
-  // Check URL query parameters for ?room=CODE on load
+  // Check URL query parameters or sessionStorage for active room on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const urlRoomCode = params.get('room')
-    if (urlRoomCode) {
-      getRoomByCode(urlRoomCode).then((foundRoom) => {
+    const activeCode = params.get('room') || sessionStorage.getItem('neizlesek_active_room_code')
+    if (activeCode) {
+      getRoomByCode(activeCode).then((foundRoom) => {
         if (foundRoom) {
           handleRoomCreatedOrJoined(foundRoom)
           setActiveTab('match')
+        } else {
+          sessionStorage.removeItem('neizlesek_active_room_code')
         }
       })
     }
@@ -205,9 +226,12 @@ export function App() {
   useEffect(() => {
     if (!room) return
 
-    // Fetch initial partner swipe count
-    fetchRoomSwipesCount(room.id, userId, roundNumber).then(({ partnerCount }) => {
+    // Fetch initial partner swipe count and current user's progress
+    fetchRoomSwipesCount(room.id, userId, roundNumber).then(({ myCount, partnerCount }) => {
       setPartnerSwipesCount(partnerCount)
+      if (myCount > 0) {
+        setInitialSwipeIndex(myCount)
+      }
     })
 
     const unsubscribe = subscribeToRoom(
@@ -230,15 +254,20 @@ export function App() {
           setTimeout(() => setPartnerVetoNotice(null), 3000)
         }
       },
-      () => {
-        // Partner swiped on a movie: increment partner count live
-        setPartnerSwipesCount((prev) => prev + 1)
+      (partnerCountOrInc) => {
+        // Partner swiped on a movie: update partner count live (handles both delta and absolute sync)
+        if (typeof partnerCountOrInc === 'number' && partnerCountOrInc > 1) {
+          setPartnerSwipesCount(partnerCountOrInc)
+        } else {
+          setPartnerSwipesCount((prev) => prev + 1)
+        }
       },
       async (incomingRound, deckIds) => {
         if (incomingRound <= roundNumberRef.current) return
         roundNumberRef.current = incomingRound
         setRoundNumber(incomingRound)
         setPartnerSwipesCount(0)
+        setInitialSwipeIndex(0)
         setRoom({ ...room, round_number: incomingRound, room_deck: deckIds })
         setIsLoading(true)
         try {
@@ -259,10 +288,19 @@ export function App() {
 
   const handleRoomCreatedOrJoined = async (newRoom: Room) => {
     setRoom(newRoom)
+    sessionStorage.setItem('neizlesek_active_room_code', newRoom.room_code)
+    const newUrl = `${window.location.pathname}?room=${newRoom.room_code}`
+    window.history.replaceState({}, '', newUrl)
+
     const initialRound = newRoom.round_number ?? 1
     roundNumberRef.current = initialRound
     setRoundNumber(initialRound)
-    setPartnerSwipesCount(0)
+
+    // Check existing progress in this room round
+    fetchRoomSwipesCount(newRoom.id, userId, initialRound).then(({ myCount, partnerCount }) => {
+      setInitialSwipeIndex(myCount)
+      setPartnerSwipesCount(partnerCount)
+    })
 
     if (newRoom.room_deck && newRoom.room_deck.length > 0) {
       // Partner joined: load identical 25 movies saved in room_deck
@@ -302,9 +340,11 @@ export function App() {
   }
 
   const handleLeaveRoom = () => {
+    sessionStorage.removeItem('neizlesek_active_room_code')
     setRoom(null)
     setRoundNumber(1)
     setPartnerSwipesCount(0)
+    setInitialSwipeIndex(0)
     window.history.replaceState({}, '', window.location.pathname)
     // Revert to infinite solo discovery mode
     loadMovies(1, filters, false, 20)
@@ -423,6 +463,7 @@ export function App() {
               onOpenDetails={setCardDetailMovie}
               onOpenFallback={room ? () => setIsFallbackOpen(true) : undefined}
               partnerSwipesCount={partnerSwipesCount}
+              initialIndex={initialSwipeIndex}
             />
           </div>
         )}

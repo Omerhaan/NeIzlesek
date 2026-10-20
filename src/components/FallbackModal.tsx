@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Sparkles, Trophy, Star, ArrowRight, Loader2, X } from 'lucide-react'
 import type { Movie } from '../types'
-import { fetchMovieDetails, IMAGE_BASE_URL } from '../services/tmdb'
+import { fetchMovieDetails } from '../services/tmdb'
 import { fetchRoomFallbackCandidates, setRoomMatchedMovie } from '../services/supabase'
+import { MovieArtwork } from './MovieArtwork'
 
 interface FallbackModalProps {
   roomId: string
@@ -119,9 +120,8 @@ export function FallbackModal({
                 className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-3 flex items-center gap-3.5 transition-all shadow-md group"
               >
                 <div className="relative w-16 h-22 rounded-xl overflow-hidden shrink-0 bg-zinc-950 border border-zinc-800">
-                  <img
-                    src={`${IMAGE_BASE_URL}${movie.poster_path}`}
-                    alt={movie.title}
+                  <MovieArtwork
+                    movie={movie}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <span className="absolute top-1 left-1 w-5 h-5 rounded-full bg-amber-500 text-black font-black text-[11px] flex items-center justify-center shadow">

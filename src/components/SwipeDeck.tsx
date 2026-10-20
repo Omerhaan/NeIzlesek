@@ -19,6 +19,7 @@ interface SwipeDeckProps {
   onOpenDetails?: (movie: Movie) => void
   onOpenFallback?: () => void
   partnerSwipesCount?: number
+  initialIndex?: number
 }
 
 export function SwipeDeck({
@@ -36,8 +37,9 @@ export function SwipeDeck({
   onOpenDetails,
   onOpenFallback,
   partnerSwipesCount,
+  initialIndex = 0,
 }: SwipeDeckProps) {
-  const [roundIndex, setRoundIndex] = useState(0)
+  const [roundIndex, setRoundIndex] = useState(initialIndex)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [remainingVetoes, setRemainingVetoes] = useState(3)
@@ -45,10 +47,24 @@ export function SwipeDeck({
   const startPos = useRef({ x: 0, y: 0 })
   const isPointerDown = useRef(false)
 
+  // Sync initialIndex if updated externally
+  useEffect(() => {
+    if (initialIndex > 0) {
+      setRoundIndex((prev) => Math.max(prev, initialIndex))
+    }
+  }, [initialIndex])
+
   // Reset veto count each round
   useEffect(() => {
     setRemainingVetoes(3)
   }, [roundNumber])
+
+  // Calculate actual round limit based on available movies
+  const effectiveLimit = hasRoundLimit
+    ? movies.length > 0
+      ? Math.min(roundLimit, movies.length)
+      : roundLimit
+    : roundLimit
 
   // In infinite mode (no round limit), auto-load more movies when nearing end
   useEffect(() => {
@@ -165,18 +181,35 @@ export function SwipeDeck({
     }
   }
 
-  // End of Round (25 Movies Limit) in Room Mode
-  if (hasRoundLimit && roundIndex >= roundLimit) {
+  // Automatically trigger fallback voting modal when both users finish and no direct match occurred
+  useEffect(() => {
+    if (
+      isRoomMode &&
+      hasRoundLimit &&
+      movies.length > 0 &&
+      roundIndex >= effectiveLimit &&
+      (partnerSwipesCount ?? 0) >= effectiveLimit &&
+      onOpenFallback
+    ) {
+      const timer = setTimeout(() => {
+        onOpenFallback()
+      }, 700)
+      return () => clearTimeout(timer)
+    }
+  }, [isRoomMode, hasRoundLimit, movies.length, roundIndex, effectiveLimit, partnerSwipesCount, onOpenFallback])
+
+  // End of Round (25 Movies Limit or end of curated deck) in Room Mode
+  if (hasRoundLimit && movies.length > 0 && roundIndex >= effectiveLimit) {
     onRoundComplete?.()
 
-    // If in room mode and partner hasn't finished all 25 movies yet, show live waiting screen
-    if (isRoomMode && partnerSwipesCount !== undefined && partnerSwipesCount < roundLimit) {
+    // If in room mode and partner hasn't finished all movies yet, show live waiting screen
+    if (isRoomMode && partnerSwipesCount !== undefined && partnerSwipesCount < effectiveLimit) {
       return (
         <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-200">
           <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center mb-4 border border-amber-500/30 shadow-lg shadow-amber-500/10">
             <Users className="w-8 h-8 animate-pulse" />
           </div>
-          <h3 className="text-xl font-black text-white mb-1.5">Harika! 25 Filmi İnceledin</h3>
+          <h3 className="text-xl font-black text-white mb-1.5">Harika! {effectiveLimit} Filmi İnceledin</h3>
           <p className="text-xs text-zinc-400 mb-6 max-w-xs leading-relaxed">
             Seçimlerin kaydedildi. Partnerinin de turunu tamamlaması bekleniyor...
           </p>
@@ -184,7 +217,7 @@ export function SwipeDeck({
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 w-full max-w-xs mb-4 flex items-center justify-between shadow-md">
             <span className="text-xs text-zinc-400 font-medium">Partnerinin İlerlemesi:</span>
             <span className="text-xs font-mono font-bold text-amber-400 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
-              {partnerSwipesCount} / {roundLimit} Film
+              {partnerSwipesCount} / {effectiveLimit} Film
             </span>
           </div>
 
@@ -204,7 +237,7 @@ export function SwipeDeck({
         <h3 className="text-xl font-bold text-white mb-2">Bu Tur Bitti!</h3>
         <p className="text-sm text-zinc-400 mb-6">
           {isRoomMode
-            ? 'İkiniz de 25 filmi tamamladınız! Ortak beğeni çıkmadıysa en çok yaklaştığınız alternatifleri oylayabilirsiniz.'
+            ? 'İkiniz de turu tamamladınız! Ortak beğeni çıkmadıysa en çok yaklaştığınız alternatifleri oylayabilirsiniz.'
             : `Tur ${roundNumber} tamamlandı. Yeni bir tura başlayabilirsiniz.`}
         </p>
 
@@ -256,16 +289,28 @@ export function SwipeDeck({
         <div className="w-16 h-16 rounded-full bg-zinc-800 flex items-center justify-center mb-4 text-zinc-400">
           <Sparkles className="w-8 h-8 text-amber-400 animate-spin" />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Filmler Yükleniyor</h3>
+        <h3 className="text-xl font-bold text-white mb-2">
+          {movies.length === 0 && !isLoading ? 'Film Bulunamadı' : 'Filmler Yükleniyor'}
+        </h3>
         <p className="text-sm text-zinc-400 mb-6">
-          Seçtiğiniz kriterlere uygun filmler hazırlanıyor...
+          {movies.length === 0 && !isLoading
+            ? 'Seçtiğiniz filtrelere uygun film bulunamadı. Lütfen filtreleri sıfırlamayı deneyin.'
+            : 'Seçtiğiniz kriterlere uygun filmler hazırlanıyor...'}
         </p>
+        {movies.length === 0 && !isLoading && onResetGenre && (
+          <button
+            onClick={onResetGenre}
+            className="py-2.5 px-6 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl cursor-pointer"
+          >
+            Filtreleri Sıfırla
+          </button>
+        )}
       </div>
     )
   }
 
-  const currentCount = Math.min(roundIndex + 1, roundLimit)
-  const progressPercent = Math.min(100, (roundIndex / roundLimit) * 100)
+  const currentCount = Math.min(roundIndex + 1, effectiveLimit)
+  const progressPercent = Math.min(100, (roundIndex / effectiveLimit) * 100)
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col justify-between px-4 pb-4 overflow-hidden">
@@ -275,7 +320,7 @@ export function SwipeDeck({
           <>
             <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
               <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
-              <span className="text-white font-mono">{currentCount} / {roundLimit}</span>
+              <span className="text-white font-mono">{currentCount} / {effectiveLimit}</span>
             </div>
             <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
               <div

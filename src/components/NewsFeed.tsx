@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Sparkles, Calendar, Star, ExternalLink, Clapperboard } from 'lucide-react'
-import { fetchNowPlayingMovies, fetchUpcomingMovies, IMAGE_BASE_URL, BACKDROP_BASE_URL } from '../services/tmdb'
+import { fetchNowPlayingMovies, fetchUpcomingMovies } from '../services/tmdb'
 import type { Movie } from '../types'
+import { MovieArtwork } from './MovieArtwork'
 
 export function NewsFeed() {
   const [filter, setFilter] = useState<'now' | 'upcoming'>('now')
@@ -74,10 +75,11 @@ export function NewsFeed() {
           {heroMovie && (
             <div className="relative rounded-3xl overflow-hidden border border-zinc-800 bg-zinc-900 shadow-xl">
               <div className="relative h-48 w-full">
-                <img
-                  src={`${BACKDROP_BASE_URL}${heroMovie.backdrop_path || heroMovie.poster_path}`}
-                  alt={heroMovie.title}
+                <MovieArtwork
+                  movie={heroMovie}
+                  preferBackdrop
                   className="w-full h-full object-cover"
+                  loading="eager"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-zinc-950 via-zinc-950/40 to-transparent" />
                 <span className="absolute top-3 left-3 bg-red-600 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-full shadow">
@@ -122,9 +124,8 @@ export function NewsFeed() {
                 key={movie.id}
                 className="flex gap-3 bg-zinc-900/90 border border-zinc-800/80 p-3 rounded-2xl hover:border-zinc-700 transition-colors"
               >
-                <img
-                  src={`${IMAGE_BASE_URL}${movie.poster_path}`}
-                  alt={movie.title}
+                <MovieArtwork
+                  movie={movie}
                   className="w-16 h-24 rounded-xl object-cover shrink-0 border border-zinc-800"
                 />
                 <div className="flex-1 flex flex-col justify-between py-0.5">
