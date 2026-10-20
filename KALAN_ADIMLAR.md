@@ -73,7 +73,7 @@ Bu belge, **Neİzlesek** projesinin mevcut özelliklerini ve canlıya çıkışa
 3. **Tek kaynaktan ve atomik oda destesi üret:** [x] Oda oluşturulduğu ilk anda 25 film destesiyle birlikte tek INSERT ile Supabase'e yazılıyor; boş deste yarış durumu (race condition) ortadan kaldırıldı. Kurucu oda kurar kurmaz beklemeden anında 25 filmle seçim ekranına yönlendiriliyor. Sonraki turlar için kilitli RPC'ler devrede.
 4. **Eşleşme ve sayaç bildirimlerini tekilleştir:** [x] Swipe sayısı tekil film bazında sayılıyor; Realtime ve polling aynı mutlak sayıyı kullanıyor; yinelenen swipe animasyonları engellendi. Partner deste yüklerken TMDb ağ hatalarına karşı retry/fallback ile 25 film tam korunuyor, deste 24'e düşmüyor. Bekleme ekranına 24/25 takılmalarını çözen hızlı sonuç açma butonu eklendi.
 5. **Oda oturumunu ve sayfa yenileme kaybını önle:** [x] `sessionStorage` ve URL `?room=CODE` parametresi ile sayfa yenilendiğinde (F5) veya sekme uykusunda odadan düşme engellendi. Kullanıcının kaldığı kart indeksi (`initialIndex`) Supabase swipe verisinden otomatik yükleniyor.
-6. **Eşzamanlı Eşleşme & Sonuç Bildirimi:** [x] İki partner bir filmi ortak beğendiğinde hem masaüstünde hem mobilde Realtime ve polling ile `MatchModal` anında patlıyor. Ortak beğeni çıkmazsa tur sonunda alternatifler (Fallback Modal) iki cihazda da eşzamanlı olarak açılıyor.
+6. **Tur Sonu Ortak Seçimler & Öneriler:** [x] Ortak beğeni swipe sırasında bildirim olarak açılmaz. İki taraf da turu bitirince ortak beğeniler ve ortak türlere dayalı öneriler sonuç ekranında gösterilir; seçilen film ayrıca eşleşme kutlamasını açar.
 7. **Veritabanı erişimini ve oda yaşam döngüsünü gözden geçir:** [ ] RLS/policy kurallarını anon kullanıcı modeliyle kontrol et; oda kodu, katılım, swipe, veto, eşleşme ve eski oda temizliği için beklenen izinleri tanımla. Temizlik fonksiyonunun gerçekten zamanlanıp zamanlanmadığını ve bağlı swipe kayıtlarının silinme davranışını doğrula.
 8. **Yapılandırma ve hata durumlarını belgele:** [ ] README'ye kurulum, gerekli ortam değişkenleri, Supabase şema kurulumu ve dağıtım adımlarını ekle. Eksik API anahtarı, ağ hatası ve boş sonuç durumlarını kullanıcıya ayırt edilir biçimde göster.
 9. **Çıkış ölçütü:** İki ayrı tarayıcı/cihazla aynı odayı açıp aynı desteyi aynı sırada görmek; swipe, veto, tur sonu, fallback ve eşleşmeyi doğrulamak; ardından üretim build'ini ve veritabanı policy'lerini kontrol etmek.
@@ -214,3 +214,32 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
 - **Belirti:** Tek bir film kaydırıldığında sayaç 2 2 artıyordu.
 - **Kök Neden:** React StrictMode altında çift mount ve dokunmatik/fare olaylarının çakışması.
 - **Çözüm:** Animasyon tamamlanana kadar swipe tetikleyicisi kilitlendi ve tekil güncelleme sağlandı.
+
+### 9. Odaya Yeniden Girince Kart İndeksinin Kayıtlı İlerlemeyle Eşleşmemesi
+- **Belirti:** Yenileme/katılma sonrası ekran eski karttan başlayabiliyor; böylece ekrandaki kart ilerlemesi veritabanındaki tekil swipe sayısından ayrışabiliyor.
+- **Kök Neden:** `initialIndex` Supabase'den asenkron yüklendiği halde `SwipeDeck` güncel değeri uygulamıyordu.
+- **Çözüm:** `initialIndex` değişince kart indeksi geriye gitmeden kayıtlı ilerlemeye taşınıyor.
+
+### 10. Ortak Beğeninin Tur Tamamlanmadan Ekrana Gelmesi
+- **Belirti:** Ortak beğeni oluşur oluşmaz `MatchModal` açılıyor; iki taraf 25 kartı tamamlamadan tur sonu ortak seçim/öneri ekranına geçilemiyordu.
+- **Kök Neden:** Realtime ve polling eşleşme olayı kutlama modalını doğrudan açıyordu.
+- **Çözüm:** Swipe sırasındaki eşleşme olayı sessiz tutuluyor. İki taraf turu bitirdiğinde ortak beğeniler ve ortak türlerden öneriler açılıyor; seçilen film kutlama modalını gösteriyor.
+
+### 11. Tur Sonu Ortak Seçimler (FallbackModal) Ekranının Kapatılamaması & Sürekli Yeniden Açılması
+- **Belirti:** Kullanıcı sağ üstteki 'X' kapatma butonuna veya 'Vazgeç ve Sıradaki Tura Geç' butonuna bastığında modal kapanıyor fakat 700ms sonra kendiliğinden tekrar açılıyordu (kullanıcı ekranda sıkışıp kalıyordu).
+- **Kök Neden:** `SwipeDeck` içindeki `useEffect`, tur tamamlanma şartı (`roundIndex >= effectiveLimit && partnerSwipesCount >= effectiveLimit`) her iki cihaz da bitirdiğinde sürekli `true` kaldığı için modal kapatılsa bile 700ms'lik timer ile `onOpenFallback()` fonksiyonunu sonsuz döngüde yeniden tetikliyordu. Ayrıca 'Vazgeç' butonu sadece modalı kapatıyor, yeni tura geçirmiyordu.
+- **Çözüm:**
+  - `hasAutoOpenedFallback` ref bayrağı eklendi. Modal tur bitiminde yalnızca İLK SEFER otomatik açılır ve bayrak kilitlenir. Kullanıcı kapattıktan sonra asla kendiliğinden tekrar açılmaz.
+  - Kullanıcı isterse `SwipeDeck` tur sonu ekranındaki butona basarak manuel olarak tekrar açabilir.
+  - Bayrak kilidi sadece kullanıcı yeni bir tura geçtiğinde (`roundNumber` değiştiğinde) sıfırlanır.
+  - 'Vazgeç ve Sıradaki Tura Geç' butonuna `onNextRound?.()` entegre edildi; basıldığında hem modal kapatılıyor hem de doğrudan bir sonraki 25 filmlik tura geçiliyor.
+
+## 🔎 Son Kod İncelemesi (2026-10-20)
+
+- [x] Ortak beğeni sonucu 25 kart öncesinde açılmıyor; tur sonu ekranı ortak beğenileri ve tür önerilerini sunuyor.
+- [x] Oda ilerlemesi asenkron geldiğinde deste indeksi kayıtlı sayaca eşitleniyor; aynı tur içinde kullanıcı ilerlemesi geriye alınmıyor.
+- [x] Fallback otomatik açılışı tur başına tek seferle sınırlandırılıyor.
+- [ ] Sayaç eşitsizliği farklı cihazlarda henüz üretim Supabase'iyle yeniden üretilemedi. Yerel kodda progress verisi benzersiz film ID'lerinden hesaplanıyor; gerçek oda/Realtime/RLS doğrulaması Faz 3.5 çıkış ölçütünde bekliyor.
+- [ ] SQL dosyasında RLS policy tanımı ve cleanup zamanlayıcısı görünmüyor; veritabanı güvenliği/temizliği doğrulanmadan canlı kullanıma hazır sayılmamalı.
+- [ ] `README.md` hâlâ Vite başlangıç şablonu; kurulum, ortam değişkenleri ve Supabase kurulum adımları belgelenmeli.
+- [ ] Bu incelemede uygulama testleri/build çalıştırılmadı; sonuçlar kod incelemesine dayanıyor.

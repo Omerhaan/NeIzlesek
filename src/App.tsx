@@ -239,14 +239,10 @@ export function App() {
       room.id,
       roundNumber,
       userId,
-      async (matchedMovieId) => {
-        const details = await fetchMovieDetails(matchedMovieId)
-        if (details) {
-          setMatchedMovie(details)
-          setIsMatchOpen(true)
-          setIsFallbackOpen(false)
-        }
-      },
+      // A shared like can mark the room as matched before the deck is finished.
+      // Keep that event quiet; the end-of-round modal presents shared likes and
+      // taste-based recommendations after both users complete their cards.
+      () => {},
       (vetoedMovieId, vetoUserId) => {
         if (vetoUserId !== userId) {
           // Resolve a partner-vetoed card as a neutral skip so both users' round counts stay aligned.
@@ -572,6 +568,7 @@ export function App() {
           roundNumber={roundNumber}
           isOpen={isFallbackOpen}
           onClose={() => setIsFallbackOpen(false)}
+          onNextRound={handleLoadNextRound}
           onSelectMovie={(movie) => {
             setMatchedMovie(movie)
             setIsMatchOpen(true)

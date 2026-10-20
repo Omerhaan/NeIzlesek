@@ -11,6 +11,7 @@ interface FallbackModalProps {
   isOpen: boolean
   onClose: () => void
   onSelectMovie: (movie: Movie) => void
+  onNextRound?: () => void
 }
 
 export function FallbackModal({
@@ -19,6 +20,7 @@ export function FallbackModal({
   isOpen,
   onClose,
   onSelectMovie,
+  onNextRound,
 }: FallbackModalProps) {
   const [sharedMovies, setSharedMovies] = useState<Movie[]>([])
   const [recommendations, setRecommendations] = useState<Movie[]>([])
@@ -152,7 +154,10 @@ export function FallbackModal({
         <div className="p-4 bg-zinc-950 border-t border-zinc-800 text-center">
           <button
             type="button"
-            onClick={onClose}
+            onClick={() => {
+              onClose()
+              onNextRound?.()
+            }}
             className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
           >
             Vazgeç ve Sıradaki Tura Geç

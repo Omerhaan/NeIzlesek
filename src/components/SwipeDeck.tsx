@@ -47,10 +47,17 @@ export function SwipeDeck({
   const startPos = useRef({ x: 0, y: 0 })
   const isPointerDown = useRef(false)
   const swipeInProgress = useRef(false)
+  const hasAutoOpenedFallback = useRef(false)
 
   useEffect(() => {
     swipeInProgress.current = false
   }, [roundIndex])
+
+  // Reset auto-open flag and veto count on each new round
+  useEffect(() => {
+    hasAutoOpenedFallback.current = false
+    setRemainingVetoes(3)
+  }, [roundNumber])
 
   // Sync initialIndex if updated externally
   useEffect(() => {
@@ -58,11 +65,6 @@ export function SwipeDeck({
       setRoundIndex((prev) => Math.max(prev, initialIndex))
     }
   }, [initialIndex])
-
-  // Reset veto count each round
-  useEffect(() => {
-    setRemainingVetoes(3)
-  }, [roundNumber])
 
   // Calculate actual round limit based on available movies
   const effectiveLimit = hasRoundLimit
@@ -187,7 +189,7 @@ export function SwipeDeck({
     }
   }
 
-  // Automatically trigger fallback voting modal when both users finish and no direct match occurred
+  // Automatically trigger fallback voting modal ONCE when both users finish and no direct match occurred
   useEffect(() => {
     if (
       isRoomMode &&
@@ -195,8 +197,10 @@ export function SwipeDeck({
       movies.length > 0 &&
       roundIndex >= effectiveLimit &&
       (partnerSwipesCount ?? 0) >= effectiveLimit &&
+      !hasAutoOpenedFallback.current &&
       onOpenFallback
     ) {
+      hasAutoOpenedFallback.current = true
       const timer = setTimeout(() => {
         onOpenFallback()
       }, 700)
