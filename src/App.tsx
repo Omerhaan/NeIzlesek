@@ -15,6 +15,7 @@ import {
   subscribeToRoom,
   getRoomByCode,
   setRoomDeck,
+  advanceRoomRound,
   fetchRoomSwipesCount,
 } from './services/supabase'
 import {
@@ -32,6 +33,30 @@ import {
   type TasteProfile,
 } from './services/tasteProfile'
 import type { Movie, Room, SwipeAction } from './types'
+
+const ROOM_DECK_SIZE = 25
+
+async function fetchRoomDeck(startPage: number, filters: FilterState): Promise<{ movies: Movie[]; nextPage: number }> {
+  const movies: Movie[] = []
+  const seenIds = new Set<number>()
+  let page = startPage
+  let pagesScanned = 0
+
+  while (movies.length < ROOM_DECK_SIZE && pagesScanned < 4) {
+    const batch = await fetchFilteredMovies(page, filters)
+    if (batch.length === 0) break
+    for (const movie of batch) {
+      if (seenIds.has(movie.id)) continue
+      seenIds.add(movie.id)
+      movies.push(movie)
+      if (movies.length >= ROOM_DECK_SIZE) break
+    }
+    page += 1
+    pagesScanned += 1
+  }
+
+  return { movies, nextPage: page }
+}
 
 export function App() {
   const userId = useRef(getOrCreateUserId()).current
@@ -51,6 +76,8 @@ export function App() {
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
   const [partnerSwipesCount, setPartnerSwipesCount] = useState(0)
+  const roundNumberRef = useRef(roundNumber)
+  roundNumberRef.current = roundNumber
 
   const tasteProfileRef = useRef(tasteProfile)
   tasteProfileRef.current = tasteProfile
@@ -155,9 +182,8 @@ export function App() {
 
   // Initialize movies on mount or when filters / room change
   useEffect(() => {
-    if (tasteProfile.isOnboarded) {
-      const limit = room ? 25 : 20
-      loadMovies(1, filters, false, limit)
+    if (tasteProfile.isOnboarded && !room) {
+      loadMovies(1, filters, false, 20)
     }
   }, [tasteProfile.isOnboarded, room, filters, loadMovies])
 
@@ -168,7 +194,7 @@ export function App() {
     if (urlRoomCode) {
       getRoomByCode(urlRoomCode).then((foundRoom) => {
         if (foundRoom) {
-          setRoom(foundRoom)
+          handleRoomCreatedOrJoined(foundRoom)
           setActiveTab('match')
         }
       })
@@ -180,12 +206,14 @@ export function App() {
     if (!room) return
 
     // Fetch initial partner swipe count
-    fetchRoomSwipesCount(room.id, userId).then(({ partnerCount }) => {
+    fetchRoomSwipesCount(room.id, userId, roundNumber).then(({ partnerCount }) => {
       setPartnerSwipesCount(partnerCount)
     })
 
     const unsubscribe = subscribeToRoom(
       room.id,
+      roundNumber,
+      userId,
       async (matchedMovieId) => {
         const details = await fetchMovieDetails(matchedMovieId)
         if (details) {
@@ -205,17 +233,35 @@ export function App() {
       () => {
         // Partner swiped on a movie: increment partner count live
         setPartnerSwipesCount((prev) => prev + 1)
+      },
+      async (incomingRound, deckIds) => {
+        if (incomingRound <= roundNumberRef.current) return
+        roundNumberRef.current = incomingRound
+        setRoundNumber(incomingRound)
+        setPartnerSwipesCount(0)
+        setRoom({ ...room, round_number: incomingRound, room_deck: deckIds })
+        setIsLoading(true)
+        try {
+          const details = await Promise.all(deckIds.map((id) => fetchMovieDetails(id)))
+          if (roundNumberRef.current === incomingRound) {
+            setMovies(details.filter((movie): movie is Movie => movie !== null))
+          }
+        } finally {
+          if (roundNumberRef.current === incomingRound) setIsLoading(false)
+        }
       }
     )
 
     return () => {
       unsubscribe()
     }
-  }, [room, userId])
+  }, [room, userId, roundNumber])
 
   const handleRoomCreatedOrJoined = async (newRoom: Room) => {
     setRoom(newRoom)
-    setRoundNumber(1)
+    const initialRound = newRoom.round_number ?? 1
+    roundNumberRef.current = initialRound
+    setRoundNumber(initialRound)
     setPartnerSwipesCount(0)
 
     if (newRoom.room_deck && newRoom.room_deck.length > 0) {
@@ -236,12 +282,17 @@ export function App() {
       // Creator created room: curate 25 movies and persist to room_deck in Supabase
       setIsLoading(true)
       try {
-        const fetched = await fetchFilteredMovies(1, filters)
-        const deck25 = fetched.slice(0, 25)
+        const { movies: deck25, nextPage } = await fetchRoomDeck(1, filters)
         const movieIds = deck25.map((m) => m.id)
-        setMovies(deck25)
-        await setRoomDeck(newRoom.id, movieIds)
-        setRoom({ ...newRoom, room_deck: movieIds })
+        setPage(nextPage)
+        const canonicalIds = await setRoomDeck(newRoom.id, movieIds)
+        const fetchedById = new Map(deck25.map((movie) => [movie.id, movie]))
+        const canonicalMovies = await Promise.all(
+          canonicalIds.map((id) => fetchedById.get(id) ?? fetchMovieDetails(id))
+        )
+        const validMovies = canonicalMovies.filter((movie): movie is Movie => movie !== null)
+        setMovies(validMovies)
+        setRoom({ ...newRoom, room_deck: canonicalIds })
       } catch (err) {
         console.error('Error creating room deck:', err)
       } finally {
@@ -267,7 +318,7 @@ export function App() {
     // If active in a room, record to Supabase
     if (room) {
       try {
-        await recordSwipe(room.id, userId, movie.id, action)
+        await recordSwipe(room.id, userId, movie.id, action, roundNumber)
       } catch (err) {
         console.error('Swipe record error:', err)
       }
@@ -278,15 +329,20 @@ export function App() {
     const nextPage = page + 1
     if (room) {
       // In room mode: curate next 25-film round and sync room_deck
-      setRoundNumber((prev) => prev + 1)
-      setPartnerSwipesCount(0)
       setIsLoading(true)
       try {
-        const fetched = await fetchFilteredMovies(nextPage, filters)
-        const deck25 = fetched.slice(0, 25)
+        const { movies: deck25, nextPage: followingPage } = await fetchRoomDeck(nextPage, filters)
         const movieIds = deck25.map((m) => m.id)
-        setMovies(deck25)
-        await setRoomDeck(room.id, movieIds)
+        const updatedRoom = await advanceRoomRound(room.id, roundNumber, movieIds)
+        setPage(followingPage)
+        if (updatedRoom.round_number > roundNumberRef.current) {
+          roundNumberRef.current = updatedRoom.round_number
+          setRoundNumber(updatedRoom.round_number)
+          setPartnerSwipesCount(0)
+          setRoom({ ...room, round_number: updatedRoom.round_number, room_deck: updatedRoom.room_deck })
+          const details = await Promise.all(updatedRoom.room_deck.map((id) => fetchMovieDetails(id)))
+          setMovies(details.filter((movie): movie is Movie => movie !== null))
+        }
       } catch (err) {
         console.error('Error loading next room round:', err)
       } finally {
@@ -412,6 +468,7 @@ export function App() {
       {room && (
         <FallbackModal
           roomId={room.id}
+          roundNumber={roundNumber}
           isOpen={isFallbackOpen}
           onClose={() => setIsFallbackOpen(false)}
           onSelectMovie={(movie) => {

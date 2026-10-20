@@ -6,6 +6,7 @@ import { fetchRoomFallbackCandidates, setRoomMatchedMovie } from '../services/su
 
 interface FallbackModalProps {
   roomId: string
+  roundNumber: number
   isOpen: boolean
   onClose: () => void
   onSelectMovie: (movie: Movie) => void
@@ -13,6 +14,7 @@ interface FallbackModalProps {
 
 export function FallbackModal({
   roomId,
+  roundNumber,
   isOpen,
   onClose,
   onSelectMovie,
@@ -29,7 +31,7 @@ export function FallbackModal({
 
     async function loadFallbackMovies() {
       try {
-        const candidateIds = await fetchRoomFallbackCandidates(roomId)
+        const candidateIds = await fetchRoomFallbackCandidates(roomId, roundNumber)
         if (candidateIds.length === 0) {
           if (isMounted) {
             setCandidates([])
@@ -57,7 +59,7 @@ export function FallbackModal({
     return () => {
       isMounted = false
     }
-  }, [isOpen, roomId])
+  }, [isOpen, roomId, roundNumber])
 
   if (!isOpen) return null
 

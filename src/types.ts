@@ -35,6 +35,7 @@ export interface Room {
   status: 'waiting' | 'active' | 'matched'
   matched_movie_id: number | null
   room_deck?: number[]
+  round_number?: number
   created_at: string
   updated_at?: string
 }
@@ -45,5 +46,6 @@ export interface RoomSwipe {
   user_name: string
   movie_id: number
   action: SwipeAction
+  round_number?: number
   created_at?: string
 }
