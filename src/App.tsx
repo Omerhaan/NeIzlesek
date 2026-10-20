@@ -231,6 +231,7 @@ export function App() {
             onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
             onLeaveRoom={handleLeaveRoom}
             onNavigateToMatch={() => setActiveTab('match')}
+            onUpdateTasteProfile={setTasteProfile}
           />
         )}
       </main>

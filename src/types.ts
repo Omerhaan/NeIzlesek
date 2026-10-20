@@ -19,6 +19,12 @@ export interface Movie {
 
 export type SwipeAction = 'pass' | 'like' | 'superlike' | 'watched' | 'veto'
 
+export interface WatchedMovieEntry {
+  movie: Movie
+  rating?: number // 1 to 10
+  watchedAt: string // ISO timestamp
+}
+
 export interface Room {
   id: string
   room_code: string

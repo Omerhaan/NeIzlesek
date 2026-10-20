@@ -1,4 +1,4 @@
-import type { Movie, SwipeAction } from '../types'
+import type { Movie, SwipeAction, WatchedMovieEntry } from '../types'
 import { GENRES } from './tmdb'
 
 export interface TasteProfile {
@@ -9,6 +9,7 @@ export interface TasteProfile {
   genreScores: Record<number, number> // genreId -> score
   likedMovies: Movie[]
   watchedMovieIds: number[]
+  watchedMovies: WatchedMovieEntry[]
   passedMovieIds: number[]
   totalSwipes: number
 }
@@ -378,6 +379,7 @@ export function getDefaultTasteProfile(userId: string): TasteProfile {
     genreScores: {},
     likedMovies: [],
     watchedMovieIds: [],
+    watchedMovies: [],
     passedMovieIds: [],
     totalSwipes: 0,
   }
@@ -388,7 +390,25 @@ export function loadTasteProfile(userId: string): TasteProfile {
   try {
     const raw = localStorage.getItem(`${STORAGE_KEY}_${userId}`)
     if (raw) {
-      return JSON.parse(raw) as TasteProfile
+      const parsed = JSON.parse(raw) as Partial<TasteProfile>
+      let watchedMovies = parsed.watchedMovies || []
+
+      // If existing profile has watchedMovieIds but empty watchedMovies, populate from COLD_START_MOVIES
+      if (watchedMovies.length === 0 && parsed.watchedMovieIds && parsed.watchedMovieIds.length > 0) {
+        const matchingColdStart = COLD_START_MOVIES.filter((m) =>
+          parsed.watchedMovieIds?.includes(m.id)
+        ).map((m) => ({
+          movie: m,
+          watchedAt: new Date().toISOString(),
+        }))
+        watchedMovies = matchingColdStart
+      }
+
+      return {
+        ...getDefaultTasteProfile(userId),
+        ...parsed,
+        watchedMovies,
+      } as TasteProfile
     }
   } catch (err) {
     console.error('Failed to load taste profile:', err)
@@ -421,14 +441,23 @@ export function updateTasteWithSwipe(
     updatedScores[gId] = (updatedScores[gId] || 0) + delta
   }
 
-  const updatedLiked = [...profile.likedMovies]
-  const updatedWatched = [...profile.watchedMovieIds]
-  const updatedPassed = [...profile.passedMovieIds]
+  const updatedLiked = [...(profile.likedMovies || [])]
+  const updatedWatched = [...(profile.watchedMovieIds || [])]
+  const updatedWatchedEntries = [...(profile.watchedMovies || [])]
+  const updatedPassed = [...(profile.passedMovieIds || [])]
 
   if (action === 'like' && !updatedLiked.some((m) => m.id === movie.id)) {
     updatedLiked.unshift(movie)
-  } else if (action === 'watched' && !updatedWatched.includes(movie.id)) {
-    updatedWatched.push(movie.id)
+  } else if (action === 'watched') {
+    if (!updatedWatched.includes(movie.id)) {
+      updatedWatched.push(movie.id)
+    }
+    if (!updatedWatchedEntries.some((w) => w.movie.id === movie.id)) {
+      updatedWatchedEntries.unshift({
+        movie,
+        watchedAt: new Date().toISOString(),
+      })
+    }
   } else if (action === 'pass' && !updatedPassed.includes(movie.id)) {
     updatedPassed.push(movie.id)
   }
@@ -438,10 +467,126 @@ export function updateTasteWithSwipe(
     genreScores: updatedScores,
     likedMovies: updatedLiked,
     watchedMovieIds: updatedWatched,
+    watchedMovies: updatedWatchedEntries,
     passedMovieIds: updatedPassed,
     totalSwipes: profile.totalSwipes + 1,
   }
 
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Remove movie from liked movies list
+export function removeLikedMovie(profile: TasteProfile, movieId: number): TasteProfile {
+  const updatedLiked = (profile.likedMovies || []).filter((m) => m.id !== movieId)
+  const updated: TasteProfile = {
+    ...profile,
+    likedMovies: updatedLiked,
+  }
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Mark a movie as watched, optionally with a rating (1-10)
+export function markMovieAsWatched(
+  profile: TasteProfile,
+  movie: Movie,
+  rating?: number
+): TasteProfile {
+  // Remove from liked if present
+  const updatedLiked = (profile.likedMovies || []).filter((m) => m.id !== movie.id)
+  const updatedWatchedIds = [...(profile.watchedMovieIds || [])]
+  if (!updatedWatchedIds.includes(movie.id)) {
+    updatedWatchedIds.push(movie.id)
+  }
+
+  const existingEntries = profile.watchedMovies || []
+  const existingIndex = existingEntries.findIndex((w) => w.movie.id === movie.id)
+  let updatedWatchedEntries: WatchedMovieEntry[]
+
+  if (existingIndex >= 0) {
+    updatedWatchedEntries = existingEntries.map((w, idx) =>
+      idx === existingIndex
+        ? { ...w, rating: rating !== undefined ? rating : w.rating, watchedAt: new Date().toISOString() }
+        : w
+    )
+  } else {
+    updatedWatchedEntries = [
+      {
+        movie,
+        rating,
+        watchedAt: new Date().toISOString(),
+      },
+      ...existingEntries,
+    ]
+  }
+
+  // If rating is high (>= 8), give bonus to genre affinity
+  const updatedScores = { ...profile.genreScores }
+  if (rating && rating >= 8) {
+    for (const gId of movie.genre_ids || []) {
+      updatedScores[gId] = (updatedScores[gId] || 0) + 1
+    }
+  }
+
+  const updated: TasteProfile = {
+    ...profile,
+    genreScores: updatedScores,
+    likedMovies: updatedLiked,
+    watchedMovieIds: updatedWatchedIds,
+    watchedMovies: updatedWatchedEntries,
+  }
+
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Remove movie from watched list
+export function removeWatchedMovie(profile: TasteProfile, movieId: number): TasteProfile {
+  const updatedWatchedEntries = (profile.watchedMovies || []).filter((w) => w.movie.id !== movieId)
+  const updatedWatchedIds = (profile.watchedMovieIds || []).filter((id) => id !== movieId)
+  const updated: TasteProfile = {
+    ...profile,
+    watchedMovies: updatedWatchedEntries,
+    watchedMovieIds: updatedWatchedIds,
+  }
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Move movie back from watched list to liked list
+export function moveWatchedToLiked(profile: TasteProfile, movie: Movie): TasteProfile {
+  const updatedWatchedEntries = (profile.watchedMovies || []).filter((w) => w.movie.id !== movie.id)
+  const updatedWatchedIds = (profile.watchedMovieIds || []).filter((id) => id !== movie.id)
+  const updatedLiked = [...(profile.likedMovies || [])]
+  if (!updatedLiked.some((m) => m.id === movie.id)) {
+    updatedLiked.unshift(movie)
+  }
+
+  const updated: TasteProfile = {
+    ...profile,
+    likedMovies: updatedLiked,
+    watchedMovies: updatedWatchedEntries,
+    watchedMovieIds: updatedWatchedIds,
+  }
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Update rating for an already watched movie
+export function updateMovieRating(
+  profile: TasteProfile,
+  movieId: number,
+  rating: number
+): TasteProfile {
+  const updatedWatchedEntries = (profile.watchedMovies || []).map((w) =>
+    w.movie.id === movieId ? { ...w, rating } : w
+  )
+
+  const updated: TasteProfile = {
+    ...profile,
+    watchedMovies: updatedWatchedEntries,
+  }
   saveTasteProfile(updated)
   return updated
 }

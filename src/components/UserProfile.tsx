@@ -7,12 +7,23 @@ import {
   LogOut,
   ArrowRight,
   Heart,
-  Film,
+  Eye,
+  Star,
+  Search,
+  Trash2,
 } from 'lucide-react'
 import { createRoom, getRoomByCode } from '../services/supabase'
-import type { Room } from '../types'
+import type { Room, Movie } from '../types'
 import { IMAGE_BASE_URL } from '../services/tmdb'
-import type { TasteProfile } from '../services/tasteProfile'
+import {
+  removeLikedMovie,
+  markMovieAsWatched,
+  removeWatchedMovie,
+  moveWatchedToLiked,
+  updateMovieRating,
+  type TasteProfile,
+} from '../services/tasteProfile'
+import { MovieDetailModal } from './MovieDetailModal'
 
 interface UserProfileProps {
   tasteProfile: TasteProfile
@@ -20,6 +31,7 @@ interface UserProfileProps {
   onRoomCreatedOrJoined: (room: Room) => void
   onLeaveRoom: () => void
   onNavigateToMatch: () => void
+  onUpdateTasteProfile?: (profile: TasteProfile) => void
 }
 
 export function UserProfile({
@@ -28,12 +40,22 @@ export function UserProfile({
   onRoomCreatedOrJoined,
   onLeaveRoom,
   onNavigateToMatch,
+  onUpdateTasteProfile,
 }: UserProfileProps) {
   const [createdRoom, setCreatedRoom] = useState<Room | null>(null)
   const [joinCode, setJoinCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [copied, setCopied] = useState(false)
+
+  // Watchlist tabs & search
+  const [activeListTab, setActiveListTab] = useState<'liked' | 'watched'>('liked')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedMovieForDetail, setSelectedMovieForDetail] = useState<{
+    movie: Movie
+    listType: 'liked' | 'watched'
+    rating?: number
+  } | null>(null)
 
   const handleCreateRoom = async () => {
     setLoading(true)
@@ -85,7 +107,46 @@ export function UserProfile({
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank')
   }
 
+  // Movie actions
+  const handleMarkAsWatched = (movie: Movie, rating?: number) => {
+    const updated = markMovieAsWatched(tasteProfile, movie, rating)
+    onUpdateTasteProfile?.(updated)
+  }
+
+  const handleRemoveLiked = (movieId: number) => {
+    const updated = removeLikedMovie(tasteProfile, movieId)
+    onUpdateTasteProfile?.(updated)
+  }
+
+  const handleUpdateRating = (movieId: number, rating: number) => {
+    const updated = updateMovieRating(tasteProfile, movieId, rating)
+    onUpdateTasteProfile?.(updated)
+  }
+
+  const handleMoveToLiked = (movie: Movie) => {
+    const updated = moveWatchedToLiked(tasteProfile, movie)
+    onUpdateTasteProfile?.(updated)
+  }
+
+  const handleRemoveWatched = (movieId: number) => {
+    const updated = removeWatchedMovie(tasteProfile, movieId)
+    onUpdateTasteProfile?.(updated)
+  }
+
   const likedMovies = tasteProfile.likedMovies || []
+  const watchedMovies = tasteProfile.watchedMovies || []
+
+  // Filter based on search query
+  const query = searchQuery.trim().toLowerCase()
+  const filteredLiked = likedMovies.filter((m) =>
+    query ? m.title.toLowerCase().includes(query) || m.original_title?.toLowerCase().includes(query) : true
+  )
+  const filteredWatched = watchedMovies.filter((w) =>
+    query
+      ? w.movie.title.toLowerCase().includes(query) ||
+        w.movie.original_title?.toLowerCase().includes(query)
+      : true
+  )
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-4 pt-2 pb-6 overflow-y-auto">
@@ -249,41 +310,216 @@ export function UserProfile({
         </div>
       )}
 
-      {/* Liked Movies History */}
-      <div className="flex flex-col gap-2.5 flex-1">
-        <div className="flex items-center justify-between px-1">
-          <div className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
-            <Heart className="w-3.5 h-3.5 text-rose-500" />
-            Beğendiğin Filmler ({likedMovies.length})
-          </div>
+      {/* Watchlist Management Section */}
+      <div className="flex flex-col gap-3 flex-1">
+        {/* Watchlist Tab Switcher */}
+        <div className="flex p-1 bg-zinc-900/90 border border-zinc-800 rounded-2xl">
+          <button
+            type="button"
+            onClick={() => setActiveListTab('liked')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeListTab === 'liked'
+                ? 'bg-rose-600 text-white shadow-md shadow-rose-600/30'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Heart className={`w-3.5 h-3.5 ${activeListTab === 'liked' ? 'fill-white' : ''}`} />
+            <span>İzlemek İstediklerim</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                activeListTab === 'liked' ? 'bg-black/30 text-white' : 'bg-zinc-800 text-zinc-400'
+              }`}
+            >
+              {likedMovies.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveListTab('watched')}
+            className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeListTab === 'watched'
+                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Eye className="w-3.5 h-3.5" />
+            <span>İzlediklerim</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                activeListTab === 'watched' ? 'bg-black/30 text-white' : 'bg-zinc-800 text-zinc-400'
+              }`}
+            >
+              {watchedMovies.length}
+            </span>
+          </button>
         </div>
 
-        {likedMovies.length === 0 ? (
-          <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl text-center text-zinc-500 text-xs">
-            <Film className="w-6 h-6 mx-auto mb-2 text-zinc-600" />
-            Henüz beğendiğiniz bir film yok. Orta sekmeden filmleri kaydırmaya başlayın!
+        {/* Quick Search in List */}
+        {(likedMovies.length > 3 || watchedMovies.length > 3) && (
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={`${activeListTab === 'liked' ? 'İzlemek istediklerinde' : 'İzlediklerinde'} ara...`}
+              className="w-full bg-zinc-900/60 border border-zinc-800/80 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-600"
+            />
           </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {likedMovies.map((movie) => (
-              <div
-                key={movie.id}
-                className="relative rounded-xl overflow-hidden aspect-[2/3] border border-zinc-800 group shadow"
-              >
-                <img
-                  src={`${IMAGE_BASE_URL}${movie.poster_path}`}
-                  alt={movie.title}
-                  className="w-full h-full object-cover"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80" />
-                <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-bold text-white line-clamp-1 leading-tight">
-                  {movie.title}
-                </span>
+        )}
+
+        {/* Liked Movies Grid */}
+        {activeListTab === 'liked' && (
+          <div>
+            {likedMovies.length === 0 ? (
+              <div className="p-8 bg-zinc-900/50 border border-zinc-800/80 rounded-2xl text-center text-zinc-500 text-xs">
+                <Heart className="w-8 h-8 mx-auto mb-2 text-zinc-600 stroke-1" />
+                <p className="font-semibold text-zinc-400 mb-1">İzleme listeniz henüz boş</p>
+                <p>Orta sekmeden filmleri sağa kaydırarak listenize ekleyebilirsiniz.</p>
               </div>
-            ))}
+            ) : filteredLiked.length === 0 ? (
+              <div className="p-6 text-center text-zinc-500 text-xs">
+                Aramanızla eşleşen film bulunamadı.
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {filteredLiked.map((movie) => (
+                  <div
+                    key={movie.id}
+                    onClick={() =>
+                      setSelectedMovieForDetail({
+                        movie,
+                        listType: 'liked',
+                      })
+                    }
+                    className="relative rounded-xl overflow-hidden aspect-[2/3] border border-zinc-800/80 group shadow-md cursor-pointer hover:border-zinc-600 transition-all active:scale-98"
+                  >
+                    <img
+                      src={`${IMAGE_BASE_URL}${movie.poster_path}`}
+                      alt={movie.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80" />
+
+                    {/* TMDb Rating Badge */}
+                    <span className="absolute top-1.5 left-1.5 flex items-center gap-0.5 text-[9px] font-bold text-amber-400 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-md border border-white/10">
+                      <Star className="w-2.5 h-2.5 fill-amber-400" />
+                      {movie.vote_average.toFixed(1)}
+                    </span>
+
+                    {/* Quick Delete Hover Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveLiked(movie.id)
+                      }}
+                      title="Listeden Çıkar"
+                      className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/70 hover:bg-rose-600 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/10 opacity-80 md:opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+
+                    <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-bold text-white line-clamp-1 leading-tight">
+                      {movie.title}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Watched Movies Grid */}
+        {activeListTab === 'watched' && (
+          <div>
+            {watchedMovies.length === 0 ? (
+              <div className="p-8 bg-zinc-900/50 border border-zinc-800/80 rounded-2xl text-center text-zinc-500 text-xs">
+                <Eye className="w-8 h-8 mx-auto mb-2 text-zinc-600 stroke-1" />
+                <p className="font-semibold text-zinc-400 mb-1">Henüz izlenen film eklenmedi</p>
+                <p>
+                  Keşfederken 👁️ 'İzledim' butonuna basarak veya beğendiğiniz filmlerden buraya aktararak
+                  puanlayabilirsiniz.
+                </p>
+              </div>
+            ) : filteredWatched.length === 0 ? (
+              <div className="p-6 text-center text-zinc-500 text-xs">
+                Aramanızla eşleşen film bulunamadı.
+              </div>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {filteredWatched.map(({ movie, rating }) => (
+                  <div
+                    key={movie.id}
+                    onClick={() =>
+                      setSelectedMovieForDetail({
+                        movie,
+                        listType: 'watched',
+                        rating,
+                      })
+                    }
+                    className="relative rounded-xl overflow-hidden aspect-[2/3] border border-zinc-800/80 group shadow-md cursor-pointer hover:border-zinc-600 transition-all active:scale-98"
+                  >
+                    <img
+                      src={`${IMAGE_BASE_URL}${movie.poster_path}`}
+                      alt={movie.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent opacity-80" />
+
+                    {/* User Rating Badge or Watched Badge */}
+                    <span className="absolute top-1.5 left-1.5 flex items-center gap-0.5 text-[9px] font-bold text-amber-300 bg-amber-950/80 border border-amber-600/40 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+                      {rating !== undefined ? (
+                        <>
+                          <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+                          <span>{rating}/10</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-2.5 h-2.5 text-emerald-400" />
+                          <span className="text-emerald-400 font-medium">İzlendi</span>
+                        </>
+                      )}
+                    </span>
+
+                    {/* Quick Delete Hover Button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveWatched(movie.id)
+                      }}
+                      title="İzlenenlerden Çıkar"
+                      className="absolute top-1.5 right-1.5 p-1 rounded-md bg-black/70 hover:bg-rose-600 text-zinc-300 hover:text-white transition-colors cursor-pointer border border-white/10 opacity-80 md:opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+
+                    <span className="absolute bottom-1.5 left-1.5 right-1.5 text-[10px] font-bold text-white line-clamp-1 leading-tight">
+                      {movie.title}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Movie Action & Detail Modal */}
+      <MovieDetailModal
+        movie={selectedMovieForDetail?.movie || null}
+        listType={selectedMovieForDetail?.listType || 'liked'}
+        initialRating={selectedMovieForDetail?.rating}
+        isOpen={!!selectedMovieForDetail}
+        onClose={() => setSelectedMovieForDetail(null)}
+        onMarkAsWatched={handleMarkAsWatched}
+        onRemoveLiked={handleRemoveLiked}
+        onUpdateRating={handleUpdateRating}
+        onMoveToLiked={handleMoveToLiked}
+        onRemoveWatched={handleRemoveWatched}
+      />
     </div>
   )
 }
