@@ -456,3 +456,31 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
   - **Geri Al (Undo) Dokunmatik İyileştirmesi:** Dokunmatik ekranlarda kart yığınının dokunma olayını yutmasını engelleyen olay yayılımı durduruldu (`stopPropagation`), buton tıklama alanı büyütüldü (`w-8.5 h-8.5`) ve kaydırma bittiğinde durum kilidi senkronize olarak sıfırlandı.
   - **Dinamik Neon Işıma (Aura & Glow):** Kartın sürüklendiği yöne göre kartın kenarlarında ve iç gradyanında neon ışık hüzmesi (yeşil, gül kırmızısı, mor veya kırmızı) belirir.
   - **Kavisli Fırlatma Fiziği & Yaylanma:** Kart serbest bırakıldığında doğal yaylanma (`cubic-bezier(0.175, 0.885, 0.32, 1.15)`) ve kavisli açısal uçuşla ekran dışına fırlar. Damgalar (`BEĞEN`, `PAS`, `👁️ İZLEDİM`, `VETO`) dinamik elastik damga efektiyle belirir.
+
+---
+
+## ⚡ En Son Eklenen Sistem İyileştirmeleri & Yeni Özellikler (Adım 1 - 4)
+
+- [x] **Adım 1: Hata & Kenar Durumu Düzeltmeleri (Bugs & Edge Cases):**
+  - **Oda Geri Alma Senkronizasyonu:** `deleteRoomSwipe` servisi eklendi ve `handleUndo` çağrıldığında Supabase'den silinmesi sağlandı (böylece geri alınan bir beğeni sahte eşleşmeye sebep olmaz).
+  - **Pencere Dışı Bırakılan Kartlar:** Global pencere seviyesinde `pointermove`, `pointerup` ve `pointercancel` dinleyicileri entegre edilerek kartın sürükleme sırasında takılı kalması engellendi.
+  - **Sayfalar Arası Solo Geri Alma:** TMDb'den yeni sayfa filmleri yüklenirken son 15 geçmiş elemanı saklanarak sayfalar arası kesintisiz geri alma sağlandı.
+  - **Aşağı Kaydırma `İzlendi` Haritalaması:** Düşey kaydırmalar mor neon aura ve `👁️ İZLEDİM` damgasıyla eşleştirildi.
+  - **Hassas Kaydırma Eşiği & Flick:** Eşik değeri 65px'e sabitlendi; 380ms altındaki hızlı parmak vuruşları (hız > 0.28 px/ms) anında algılanır hale getirildi.
+
+- [x] **Adım 2: Performans & Kod Bölümleme (Code Splitting):**
+  - **Rollup manualChunks:** `vite.config.ts` içinde `vendor` (react, react-dom), `supabase` (@supabase/supabase-js) ve `icons` (lucide-react) ayrı chunk'lara bölündü.
+  - **React.lazy & Suspense:** İkincil sekmeler (`NewsFeed`, `UserProfile`) ve tüm modallar (`MatchModal`, `FilterModal`, `MovieDetailModal`, `FallbackModal`, `GroupResultModal`, `AuthModal`, `OnboardingFlow`) tembel yüklenir hale getirildi.
+  - **İlk JS Yükleme Boyutu:** Ana bundle 671 kB'den **300 kB**'ye düşürüldü; ilk sayfa açılış hızı 2 katından fazla hızlandı.
+
+- [x] **Adım 3: Etkileşim & Canlı Senkronizasyon (UX & Interactions):**
+  - **Instagram Tarzı Çift Dokunarak Beğenme (Double-Tap to Like):** Kart afişine 320ms içinde iki kez dokunulduğunda merkezde dev boyutlu, ışıltılı kırmızı kalp patlama animasyonu (`animate-heart-burst`) çalışır, haptik titreşim verir ve filmi sağa kaydırarak beğenir.
+  - **Web Share API & Eşleşme Paylaşımı:** `MatchModal` içine "Eşleşmeyi Arkadaşınla Paylaş" butonu eklendi. Mobil cihazlarda yerel paylaşım menüsü (WhatsApp, Instagram, Mesajlar), masaüstünde ise panoya kopyalama ve anlık bildirim (`Bağlantı Kopyalandı! 📋`) devreye girer.
+  - **Canlı Partner Geri Alma Senkronizasyonu (Realtime Partner Undo):** `subscribeToRoom` kanalına `room_swipes` tablosundaki `DELETE` olayları dinleyicisi eklendi. Partner bir filmi geri aldığında ilerleme çubuğu partnerin ekranında da anlık olarak bir geriye düşer.
+
+- [x] **Adım 4: Global Film Arama & Hızlı Puanlama (Global Search & Quick Rating):**
+  - **Header Film Arama Butonu:** Üst çubuğa arama simgesi eklendi; her sekmeden tek tıkla `GlobalSearchModal` açılabilir.
+  - **TMDb Canlı Film Araması:** Başlık veya anahtar kelimeyle arama, debounced API sorgusu, popüler film öneri etiketleri (Dune, Interstellar, Oppenheimer vb.).
+  - **Doğrudan Listeye Ekleme & Puanlama:** Arama sonuçlarından tek tıkla filme Beğen (İzlemek İstediklerim'e ekle) veya İzlendi (1-10 puan seçicisiyle birlikte) işlemi yapılabilir.
+  - **Hızlı 1-10 Yıldız Puanlama Çubuğu (`QuickRatingPrompt`):** Ana akışta bir film aşağı kaydırılarak "İzlendi" olarak işaretlendiğinde, ekranın altında zarif bir puanlama barı belirir (`1-10` puan butonları). Kullanıcı tek tıkla puanını belirleyebilir veya geçebilir.
+
