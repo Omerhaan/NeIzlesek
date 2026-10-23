@@ -444,3 +444,7 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
   - Tür zevk skorları (genre scores) net fark formülü (`netDelta = newDelta - oldDelta`) ile güncellenerek mükerrer puan şişmesi engellenir.
   - Supabase `room_swipes` üzerinde `ignoreDuplicates: false` ayarlanarak geri alma sonrası değişen kararlar veritabanında da güncellenir.
 - [x] **Doğrulama:** `npm run build` ile derleme hatasız tamamlandı.
+- [x] **Dikey Tam Ekran (Immersive Fullscreen) Kart Deneyimi:**
+  - **Masaüstü Tuş İpuçları Kaldırıldı:** Alt kısımdaki klavye ipucu satırı arayüzü sadeleştirmek için kaldırıldı (klavye kontrolleri aktif çalışmaya devam ediyor).
+  - **Aşağı Doğru Genişletme & Floating Dock:** Butonlar (`Pas`, `Veto`, `İzledim`, `Beğen`) kartın alt ucunun üzerinde modern cam efektiyle (`backdrop-blur-md bg-zinc-950/90`) yüzen konuma getirildi; kart alt metin boşluğu (`pb-20 sm:pb-22`) ve karartma gradyanı artırıldı.
+  - **Yukarı Doğru Story Tarzı Genişletme:** Kartlar üst sınırına kadar uzatıldı; ince hikaye (story) ilerleme çubuğu, sol üst `RotateCcw` geri alma butonu ve tur rozeti doğrudan kartın üzerine bindirildi (`top-2.5 z-30`). Kartlar dikeyde ekranın neredeyse tamamını kaplayan sinematik boyuta ulaştı.
