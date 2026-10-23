@@ -3,6 +3,7 @@ import { Header } from './components/Header'
 import { SwipeDeck } from './components/SwipeDeck'
 import { BottomNav, type NavTab } from './components/BottomNav'
 import { PWAInstallBanner } from './components/PWAInstallBanner'
+import { QuickRatingPrompt } from './components/QuickRatingPrompt'
 import { hapticLike } from './utils/haptics'
 
 const MatchModal = lazy(() => import('./components/MatchModal').then((m) => ({ default: m.MatchModal })))
@@ -15,6 +16,7 @@ const MovieDetailModal = lazy(() => import('./components/MovieDetailModal').then
 const RoomWaitingLobby = lazy(() => import('./components/RoomWaitingLobby').then((m) => ({ default: m.RoomWaitingLobby })))
 const GroupResultModal = lazy(() => import('./components/GroupResultModal').then((m) => ({ default: m.GroupResultModal })))
 const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })))
+const GlobalSearchModal = lazy(() => import('./components/GlobalSearchModal').then((m) => ({ default: m.GlobalSearchModal })))
 import {
   getOrCreateUserId,
   createRoom,
@@ -53,6 +55,8 @@ import {
   updateTasteWithSwipe,
   getTopGenreIds,
   addMatchedMovie,
+  updateMovieRating,
+  markMovieAsWatched,
   type TasteProfile,
 } from './services/tasteProfile'
 import type { Movie, Room, SwipeAction, GroupParticipant, GroupVoteResult, RoomMode } from './types'
@@ -163,6 +167,8 @@ export function App() {
   const [groupParticipants, setGroupParticipants] = useState<GroupParticipant[]>([])
   const [groupResults, setGroupResults] = useState<GroupVoteResult[] | null>(null)
   const [isGroupResultsOpen, setIsGroupResultsOpen] = useState(false)
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false)
+  const [recentlyWatchedMovie, setRecentlyWatchedMovie] = useState<Movie | null>(null)
   const roundNumberRef = useRef(roundNumber)
   roundNumberRef.current = roundNumber
 
@@ -653,7 +659,22 @@ export function App() {
     if (authUser) {
       void syncProfileToCloud(updated)
     }
+
+    if (action === 'watched') {
+      setRecentlyWatchedMovie(movie)
+    } else {
+      setRecentlyWatchedMovie(null)
+    }
+
     return true
+  }
+
+  const handleQuickRate = (movieId: number, rating: number) => {
+    const updated = updateMovieRating(tasteProfile, movieId, rating)
+    setTasteProfile(updated)
+    if (authUser) {
+      void syncProfileToCloud(updated)
+    }
   }
 
   const handleUndo = useCallback(() => {
@@ -756,6 +777,7 @@ export function App() {
         roomCode={room ? room.room_code : null}
         onLeaveRoom={room ? handleLeaveRoom : undefined}
         onOpenFilter={activeTab === 'match' ? () => setIsFilterOpen(true) : undefined}
+        onOpenSearch={() => setIsGlobalSearchOpen(true)}
         selectedGenreName={headerFilterLabel}
         activeFilterCount={activeFilterCount}
       />
@@ -856,6 +878,13 @@ export function App() {
         </Suspense>
       </main>
 
+      {/* Quick Rating Prompt when movie is swiped as watched */}
+      <QuickRatingPrompt
+        movie={recentlyWatchedMovie}
+        onRate={handleQuickRate}
+        onDismiss={() => setRecentlyWatchedMovie(null)}
+      />
+
       {/* Bottom Navigation Bar */}
       <BottomNav
         activeTab={activeTab}
@@ -864,6 +893,28 @@ export function App() {
       />
 
       <Suspense fallback={null}>
+        {/* Global Movie Search Modal */}
+        <GlobalSearchModal
+          isOpen={isGlobalSearchOpen}
+          onClose={() => setIsGlobalSearchOpen(false)}
+          onOpenDetails={(movie) => setCardDetailMovie(movie)}
+          onLikeMovie={(movie) => {
+            const updated = updateTasteWithSwipe(tasteProfile, movie, 'like')
+            setTasteProfile(updated)
+            if (authUser) void syncProfileToCloud(updated)
+          }}
+          onWatchMovie={(movie, rating) => {
+            const updated = markMovieAsWatched(tasteProfile, movie, rating)
+            setTasteProfile(updated)
+            if (authUser) void syncProfileToCloud(updated)
+          }}
+          isLiked={(id) => (tasteProfile.likedMovies || []).some((m) => m.id === id)}
+          isWatched={(id) => (tasteProfile.watchedMovieIds || []).includes(id)}
+          getWatchedRating={(id) =>
+            (tasteProfile.watchedMovies || []).find((w) => w.movie.id === id)?.rating
+          }
+        />
+
         {/* Filter Modal */}
         <FilterModal
           isOpen={isFilterOpen}
@@ -879,6 +930,11 @@ export function App() {
           isOpen={!!cardDetailMovie}
           onClose={() => setCardDetailMovie(null)}
           onSwipeFromModal={handleSwipe}
+          onMarkAsWatched={(movie, rating) => {
+            const updated = markMovieAsWatched(tasteProfile, movie, rating)
+            setTasteProfile(updated)
+            if (authUser) void syncProfileToCloud(updated)
+          }}
           canVeto={!!room}
         />
 

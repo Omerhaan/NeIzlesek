@@ -361,3 +361,32 @@ export async function fetchUpcomingMovies(): Promise<Movie[]> {
   }
 }
 
+export async function searchMovies(query: string, page = 1): Promise<Movie[]> {
+  const trimmed = query.trim()
+  if (!trimmed) return []
+  try {
+    const url = `${BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&language=tr-TR&region=TR&query=${encodeURIComponent(
+      trimmed
+    )}&page=${page}&include_adult=false`
+    const res = await fetch(url)
+    if (!res.ok) return []
+    const data = await res.json()
+    return (data.results || [])
+      .filter((m: any) => m.poster_path || m.backdrop_path)
+      .map((m: any) => ({
+        id: m.id,
+        title: m.title || m.original_title,
+        original_title: m.original_title,
+        overview: m.overview || '',
+        poster_path: m.poster_path,
+        backdrop_path: m.backdrop_path,
+        vote_average: Math.round((m.vote_average || 0) * 10) / 10,
+        release_date: m.release_date || '',
+        genre_ids: m.genre_ids || [],
+      }))
+  } catch (err) {
+    console.error('Failed to search movies:', err)
+    return []
+  }
+}
+

@@ -1,10 +1,11 @@
-import { Film, LogOut, Copy, Check, SlidersHorizontal, ChevronDown } from 'lucide-react'
+import { Film, LogOut, Copy, Check, SlidersHorizontal, ChevronDown, Search } from 'lucide-react'
 import { useState } from 'react'
 
 interface HeaderProps {
   roomCode?: string | null
   onLeaveRoom?: () => void
   onOpenFilter?: () => void
+  onOpenSearch?: () => void
   selectedGenreName?: string
   activeFilterCount?: number
 }
@@ -13,6 +14,7 @@ export function Header({
   roomCode,
   onLeaveRoom,
   onOpenFilter,
+  onOpenSearch,
   selectedGenreName,
   activeFilterCount = 0,
 }: HeaderProps) {
@@ -37,6 +39,18 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Global Search Button */}
+        {onOpenSearch && (
+          <button
+            onClick={onOpenSearch}
+            className="p-2 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white rounded-full transition-colors cursor-pointer"
+            title="Film Ara & Listene Ekle"
+            aria-label="Film Ara"
+          >
+            <Search className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* Compact Filter Button */}
         {onOpenFilter && (
           <button
