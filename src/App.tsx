@@ -1,19 +1,20 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react'
 import { Header } from './components/Header'
 import { SwipeDeck } from './components/SwipeDeck'
-import { MatchModal } from './components/MatchModal'
-import { FilterModal } from './components/FilterModal'
-import { NewsFeed } from './components/NewsFeed'
-import { UserProfile } from './components/UserProfile'
-import { OnboardingFlow } from './components/OnboardingFlow'
-import { FallbackModal } from './components/FallbackModal'
-import { MovieDetailModal } from './components/MovieDetailModal'
 import { BottomNav, type NavTab } from './components/BottomNav'
 import { PWAInstallBanner } from './components/PWAInstallBanner'
-import { RoomWaitingLobby } from './components/RoomWaitingLobby'
-import { GroupResultModal } from './components/GroupResultModal'
-import { AuthModal } from './components/AuthModal'
 import { hapticLike } from './utils/haptics'
+
+const MatchModal = lazy(() => import('./components/MatchModal').then((m) => ({ default: m.MatchModal })))
+const FilterModal = lazy(() => import('./components/FilterModal').then((m) => ({ default: m.FilterModal })))
+const NewsFeed = lazy(() => import('./components/NewsFeed').then((m) => ({ default: m.NewsFeed })))
+const UserProfile = lazy(() => import('./components/UserProfile').then((m) => ({ default: m.UserProfile })))
+const OnboardingFlow = lazy(() => import('./components/OnboardingFlow').then((m) => ({ default: m.OnboardingFlow })))
+const FallbackModal = lazy(() => import('./components/FallbackModal').then((m) => ({ default: m.FallbackModal })))
+const MovieDetailModal = lazy(() => import('./components/MovieDetailModal').then((m) => ({ default: m.MovieDetailModal })))
+const RoomWaitingLobby = lazy(() => import('./components/RoomWaitingLobby').then((m) => ({ default: m.RoomWaitingLobby })))
+const GroupResultModal = lazy(() => import('./components/GroupResultModal').then((m) => ({ default: m.GroupResultModal })))
+const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })))
 import {
   getOrCreateUserId,
   createRoom,
@@ -736,13 +737,15 @@ export function App() {
     <div className="relative w-full h-[100dvh] flex flex-col bg-zinc-950 text-white overflow-hidden">
       {/* Onboarding Flow (shown on first launch or when test is reset) */}
       {!tasteProfile.isOnboarded && (
-        <OnboardingFlow
-          initialProfile={tasteProfile}
-          onComplete={(completedProfile) => {
-            setTasteProfile(completedProfile)
-            loadMovies(1, filters, false, 20)
-          }}
-        />
+        <Suspense fallback={null}>
+          <OnboardingFlow
+            initialProfile={tasteProfile}
+            onComplete={(completedProfile) => {
+              setTasteProfile(completedProfile)
+              loadMovies(1, filters, false, 20)
+            }}
+          />
+        </Suspense>
       )}
 
       {/* PWA Mobile Install Prompt */}
@@ -788,67 +791,69 @@ export function App() {
 
       {/* Main Content Area based on Active Tab */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {activeTab === 'news' && <NewsFeed />}
+        <Suspense fallback={<div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">Yükleniyor...</div>}>
+          {activeTab === 'news' && <NewsFeed />}
 
-        {activeTab === 'match' && (
-          <div className="flex-1 flex flex-col overflow-hidden">
-            {room && room.status === 'waiting' && !isWaitingBypassed ? (
-              <RoomWaitingLobby
-                room={room}
-                creatorName={tasteProfile.username || 'Kurucu'}
-                isCreator={Boolean(sessionStorage.getItem('neizlesek_created_room_code') === room.room_code)}
-                participants={groupParticipants}
-                onStartRoom={handleStartGroupRoom}
-                onStartSolo={() => setIsWaitingBypassed(true)}
-                onLeaveRoom={handleLeaveRoom}
-              />
-            ) : (
-              /* Swipe Deck with infinite solo mode or 25-film room limit */
-              <SwipeDeck
-                key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
-                movies={movies}
-                onSwipe={handleSwipe}
-                onUndo={handleUndo}
-                onLoadNextRound={handleLoadNextRound}
-                onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
-                isLoading={isLoading}
-                roundNumber={roundNumber}
-                roundLimit={25}
-                hasRoundLimit={!!room}
-                isRoomMode={!!room}
-                roomMode={room?.room_mode}
-                groupParticipants={groupParticipants}
-                totalSwipesCount={tasteProfile.totalSwipes}
-                onOpenDetails={setCardDetailMovie}
-                onOpenFallback={room && room.room_mode !== 'group' ? () => setIsFallbackOpen(true) : undefined}
-                onOpenGroupResults={room && room.room_mode === 'group' ? handleOpenGroupResults : undefined}
-                partnerSwipesCount={partnerSwipesCount}
-                initialIndex={initialSwipeIndex}
-                vetoedMovieIds={vetoedMovieIds}
-              />
-            )}
-          </div>
-        )}
+          {activeTab === 'match' && (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {room && room.status === 'waiting' && !isWaitingBypassed ? (
+                <RoomWaitingLobby
+                  room={room}
+                  creatorName={tasteProfile.username || 'Kurucu'}
+                  isCreator={Boolean(sessionStorage.getItem('neizlesek_created_room_code') === room.room_code)}
+                  participants={groupParticipants}
+                  onStartRoom={handleStartGroupRoom}
+                  onStartSolo={() => setIsWaitingBypassed(true)}
+                  onLeaveRoom={handleLeaveRoom}
+                />
+              ) : (
+                /* Swipe Deck with infinite solo mode or 25-film room limit */
+                <SwipeDeck
+                  key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
+                  movies={movies}
+                  onSwipe={handleSwipe}
+                  onUndo={handleUndo}
+                  onLoadNextRound={handleLoadNextRound}
+                  onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
+                  isLoading={isLoading}
+                  roundNumber={roundNumber}
+                  roundLimit={25}
+                  hasRoundLimit={!!room}
+                  isRoomMode={!!room}
+                  roomMode={room?.room_mode}
+                  groupParticipants={groupParticipants}
+                  totalSwipesCount={tasteProfile.totalSwipes}
+                  onOpenDetails={setCardDetailMovie}
+                  onOpenFallback={room && room.room_mode !== 'group' ? () => setIsFallbackOpen(true) : undefined}
+                  onOpenGroupResults={room && room.room_mode === 'group' ? handleOpenGroupResults : undefined}
+                  partnerSwipesCount={partnerSwipesCount}
+                  initialIndex={initialSwipeIndex}
+                  vetoedMovieIds={vetoedMovieIds}
+                />
+              )}
+            </div>
+          )}
 
-        {activeTab === 'profile' && (
-          <UserProfile
-            tasteProfile={tasteProfile}
-            activeRoom={room}
-            partnerScores={partnerScores}
-            authUser={authUser}
-            onCreateRoom={handleCreateRoomAction}
-            onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
-            onLeaveRoom={handleLeaveRoom}
-            onNavigateToMatch={() => setActiveTab('match')}
-            onUpdateTasteProfile={(updated) => {
-              setTasteProfile(updated)
-              if (authUser) void syncProfileToCloud(updated)
-            }}
-            onStartCalibration={() => setIsCalibrationModalOpen(true)}
-            onOpenAuthModal={() => setIsAuthModalOpen(true)}
-            onSignOut={handleSignOut}
-          />
-        )}
+          {activeTab === 'profile' && (
+            <UserProfile
+              tasteProfile={tasteProfile}
+              activeRoom={room}
+              partnerScores={partnerScores}
+              authUser={authUser}
+              onCreateRoom={handleCreateRoomAction}
+              onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
+              onLeaveRoom={handleLeaveRoom}
+              onNavigateToMatch={() => setActiveTab('match')}
+              onUpdateTasteProfile={(updated) => {
+                setTasteProfile(updated)
+                if (authUser) void syncProfileToCloud(updated)
+              }}
+              onStartCalibration={() => setIsCalibrationModalOpen(true)}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onSignOut={handleSignOut}
+            />
+          )}
+        </Suspense>
       </main>
 
       {/* Bottom Navigation Bar */}
@@ -858,111 +863,113 @@ export function App() {
         hasActiveRoom={!!room}
       />
 
-      {/* Filter Modal */}
-      <FilterModal
-        isOpen={isFilterOpen}
-        onClose={() => setIsFilterOpen(false)}
-        currentFilters={filters}
-        onApplyFilters={handleApplyFilters}
-      />
-
-      {/* Movie Card Preview & Trailer Modal */}
-      <MovieDetailModal
-        movie={cardDetailMovie}
-        listType="preview"
-        isOpen={!!cardDetailMovie}
-        onClose={() => setCardDetailMovie(null)}
-        onSwipeFromModal={handleSwipe}
-        canVeto={!!room}
-      />
-
-      {/* Fallback Voting Modal (When no match after round) */}
-      {room && room.room_mode !== 'group' && (
-        <FallbackModal
-          roomId={room.id}
-          roundNumber={roundNumber}
-          isOpen={isFallbackOpen}
-          onClose={() => setIsFallbackOpen(false)}
-          onNextRound={handleLoadNextRound}
-          onSelectMovie={(movie) => {
-            setMatchedMovie(movie)
-            setIsMatchOpen(true)
-            setIsFallbackOpen(false)
-            if (room) {
-              const updated = addMatchedMovie(
-                tasteProfileRef.current,
-                movie,
-                room.room_code,
-                room.partner_name || 'Partner'
-              )
-              setTasteProfile(updated)
-            }
-          }}
+      <Suspense fallback={null}>
+        {/* Filter Modal */}
+        <FilterModal
+          isOpen={isFilterOpen}
+          onClose={() => setIsFilterOpen(false)}
+          currentFilters={filters}
+          onApplyFilters={handleApplyFilters}
         />
-      )}
 
-      {/* Group Watch Party Voting Results & Podium Modal */}
-      {room && room.room_mode === 'group' && (
-        <GroupResultModal
-          isOpen={isGroupResultsOpen}
-          onClose={() => setIsGroupResultsOpen(false)}
-          results={groupResults || []}
-          vetoedMovies={movies.filter((m) => vetoedMovieIds.has(m.id))}
-          totalParticipants={Math.max(groupParticipants.length, 2)}
-          roundNumber={roundNumber}
-          onNextRound={() => {
-            setIsGroupResultsOpen(false)
-            void handleLoadNextRound()
-          }}
-          onLeaveRoom={() => {
-            setIsGroupResultsOpen(false)
-            handleLeaveRoom()
-          }}
-          onSelectMovie={(movie) => {
-            setMatchedMovie(movie)
-            setIsMatchOpen(true)
-            setIsGroupResultsOpen(false)
-            if (room) {
-              const updated = addMatchedMovie(
-                tasteProfileRef.current,
-                movie,
-                room.room_code,
-                'Watch Party Grubu'
-              )
-              setTasteProfile(updated)
-            }
-          }}
+        {/* Movie Card Preview & Trailer Modal */}
+        <MovieDetailModal
+          movie={cardDetailMovie}
+          listType="preview"
+          isOpen={!!cardDetailMovie}
+          onClose={() => setCardDetailMovie(null)}
+          onSwipeFromModal={handleSwipe}
+          canVeto={!!room}
         />
-      )}
 
-      {/* Match Celebration Modal */}
-      <MatchModal
-        movie={matchedMovie}
-        isOpen={isMatchOpen}
-        onClose={() => setIsMatchOpen(false)}
-      />
+        {/* Fallback Voting Modal (When no match after round) */}
+        {room && room.room_mode !== 'group' && (
+          <FallbackModal
+            roomId={room.id}
+            roundNumber={roundNumber}
+            isOpen={isFallbackOpen}
+            onClose={() => setIsFallbackOpen(false)}
+            onNextRound={handleLoadNextRound}
+            onSelectMovie={(movie) => {
+              setMatchedMovie(movie)
+              setIsMatchOpen(true)
+              setIsFallbackOpen(false)
+              if (room) {
+                const updated = addMatchedMovie(
+                  tasteProfileRef.current,
+                  movie,
+                  room.room_code,
+                  room.partner_name || 'Partner'
+                )
+                setTasteProfile(updated)
+              }
+            }}
+          />
+        )}
 
-      {/* Cloud Account & Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        currentProfile={tasteProfile}
-        onAuthSuccess={handleAuthSuccess}
-      />
+        {/* Group Watch Party Voting Results & Podium Modal */}
+        {room && room.room_mode === 'group' && (
+          <GroupResultModal
+            isOpen={isGroupResultsOpen}
+            onClose={() => setIsGroupResultsOpen(false)}
+            results={groupResults || []}
+            vetoedMovies={movies.filter((m) => vetoedMovieIds.has(m.id))}
+            totalParticipants={Math.max(groupParticipants.length, 2)}
+            roundNumber={roundNumber}
+            onNextRound={() => {
+              setIsGroupResultsOpen(false)
+              void handleLoadNextRound()
+            }}
+            onLeaveRoom={() => {
+              setIsGroupResultsOpen(false)
+              handleLeaveRoom()
+            }}
+            onSelectMovie={(movie) => {
+              setMatchedMovie(movie)
+              setIsMatchOpen(true)
+              setIsGroupResultsOpen(false)
+              if (room) {
+                const updated = addMatchedMovie(
+                  tasteProfileRef.current,
+                  movie,
+                  room.room_code,
+                  'Watch Party Grubu'
+                )
+                setTasteProfile(updated)
+              }
+            }}
+          />
+        )}
 
-      {/* Reopenable 30 Movie Calibration Modal */}
-      {isCalibrationModalOpen && (
-        <OnboardingFlow
-          initialProfile={tasteProfile}
-          startAtColdStart={true}
-          onClose={() => setIsCalibrationModalOpen(false)}
-          onComplete={(completedProfile) => {
-            setTasteProfile(completedProfile)
-            setIsCalibrationModalOpen(false)
-            if (authUser) void syncProfileToCloud(completedProfile)
-          }}
+        {/* Match Celebration Modal */}
+        <MatchModal
+          movie={matchedMovie}
+          isOpen={isMatchOpen}
+          onClose={() => setIsMatchOpen(false)}
         />
-      )}
+
+        {/* Cloud Account & Auth Modal */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          currentProfile={tasteProfile}
+          onAuthSuccess={handleAuthSuccess}
+        />
+
+        {/* Reopenable 30 Movie Calibration Modal */}
+        {isCalibrationModalOpen && (
+          <OnboardingFlow
+            initialProfile={tasteProfile}
+            startAtColdStart={true}
+            onClose={() => setIsCalibrationModalOpen(false)}
+            onComplete={(completedProfile) => {
+              setTasteProfile(completedProfile)
+              setIsCalibrationModalOpen(false)
+              if (authUser) void syncProfileToCloud(completedProfile)
+            }}
+          />
+        )}
+      </Suspense>
     </div>
   )
 }
