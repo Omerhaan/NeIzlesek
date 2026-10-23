@@ -521,9 +521,9 @@ export function SwipeDeck({
   const progressPercent = Math.min(100, (roundIndex / effectiveLimit) * 100)
 
   return (
-    <div className="flex-1 w-full max-w-md mx-auto flex flex-col justify-between px-4 pb-4 overflow-hidden">
+    <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-3 sm:px-4 pb-3 overflow-hidden">
       {/* Top Round Progress Bar or Solo Discovery Indicator with Undo Button */}
-      <div className="w-full py-1.5 flex items-center gap-2.5 z-10">
+      <div className="w-full py-1.5 flex items-center gap-2.5 z-10 shrink-0">
         <button
           type="button"
           onClick={handleUndo}
@@ -574,112 +574,94 @@ export function SwipeDeck({
         </div>
       </div>
 
-      {/* Card Stack Area */}
-      <div
-        className="relative flex-1 w-full my-1 touch-none select-none"
-        onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
-        onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
-        onTouchEnd={handleEnd}
-        onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
-        onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-      >
-        {/* Next Card in Stack */}
-        {nextMovie && (
+      {/* Main Card & Floating Actions Stage */}
+      <div className="relative flex-1 w-full min-h-0 my-1">
+        {/* Card Stack Area */}
+        <div
+          className="absolute inset-0 w-full h-full touch-none select-none"
+          onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
+          onTouchMove={(e) => handleMove(e.touches[0].clientX, e.touches[0].clientY)}
+          onTouchEnd={handleEnd}
+          onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
+          onMouseMove={(e) => handleMove(e.clientX, e.clientY)}
+          onMouseUp={handleEnd}
+          onMouseLeave={handleEnd}
+        >
+          {/* Next Card in Stack */}
+          {nextMovie && (
+            <MovieCard
+              key={nextMovie.id}
+              movie={nextMovie}
+              isTopCard={false}
+              dragOffset={{ x: 0, y: 0 }}
+              isDragging={false}
+              onOpenDetails={onOpenDetails}
+            />
+          )}
+
+          {/* Current Top Card */}
           <MovieCard
-            key={nextMovie.id}
-            movie={nextMovie}
-            isTopCard={false}
-            dragOffset={{ x: 0, y: 0 }}
-            isDragging={false}
+            key={currentMovie.id}
+            movie={currentMovie}
+            isTopCard={true}
+            dragOffset={dragOffset}
+            isDragging={isDragging}
             onOpenDetails={onOpenDetails}
           />
-        )}
+        </div>
 
-        {/* Current Top Card */}
-        <MovieCard
-          key={currentMovie.id}
-          movie={currentMovie}
-          isTopCard={true}
-          dragOffset={dragOffset}
-          isDragging={isDragging}
-          onOpenDetails={onOpenDetails}
-        />
-      </div>
-
-      {/* Centered Action Buttons Toolbar */}
-      <div className="flex items-center justify-center gap-4 sm:gap-6 py-2 z-30">
-        {/* Pass Button */}
-        <button
-          type="button"
-          onClick={() => triggerSwipe('pass')}
-          className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-rose-500/50 text-rose-500 hover:bg-rose-500/10 hover:border-rose-500 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer"
-          title="Pas (Geç)"
-        >
-          <X className="w-6 h-6" strokeWidth={2.5} />
-        </button>
-
-        {/* Veto Button (In Room Mode) */}
-        {isRoomMode && (
+        {/* Floating Centered Action Buttons Toolbar (Tinder-style dock floating over card bottom) */}
+        <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4 sm:gap-5 z-30 pointer-events-none">
+          {/* Pass Button */}
           <button
             type="button"
-            disabled={remainingVetoes <= 0}
-            onClick={handleVetoClick}
-            className={`relative w-13 h-13 rounded-full bg-zinc-900 border-2 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer ${
-              remainingVetoes > 0
-                ? 'border-red-600/60 text-red-500 hover:bg-red-500/10 hover:border-red-500'
-                : 'border-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
-            }`}
-            title={`Veto Et (Kalan: ${remainingVetoes})`}
+            onClick={() => triggerSwipe('pass')}
+            className="w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-rose-500/60 text-rose-500 hover:bg-rose-500/20 hover:border-rose-400 hover:scale-105 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            title="Pas (Geç)"
           >
-            <Ban className="w-5 h-5 stroke-[2.5]" />
-            <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white font-mono font-bold text-[10px] flex items-center justify-center shadow">
-              {remainingVetoes}
-            </span>
+            <X className="w-6 h-6" strokeWidth={2.5} />
           </button>
-        )}
 
-        {/* Watched Button */}
-        <button
-          type="button"
-          onClick={() => triggerSwipe('watched')}
-          className="w-13 h-13 rounded-full bg-zinc-900 border-2 border-purple-500/50 text-purple-400 hover:bg-purple-500/10 hover:border-purple-400 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer"
-          title="İzledim"
-        >
-          <Eye className="w-5 h-5 stroke-[2.2]" />
-        </button>
+          {/* Veto Button (In Room Mode) */}
+          {isRoomMode && (
+            <button
+              type="button"
+              disabled={remainingVetoes <= 0}
+              onClick={handleVetoClick}
+              className={`relative w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto ${
+                remainingVetoes > 0
+                  ? 'border-red-600/70 text-red-500 hover:bg-red-500/20 hover:border-red-500 hover:scale-105'
+                  : 'border-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
+              }`}
+              title={`Veto Et (Kalan: ${remainingVetoes})`}
+            >
+              <Ban className="w-5 h-5 stroke-[2.5]" />
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-600 text-white font-mono font-bold text-[10px] flex items-center justify-center shadow">
+                {remainingVetoes}
+              </span>
+            </button>
+          )}
 
-        {/* Like Button */}
-        <button
-          type="button"
-          onClick={() => triggerSwipe('like')}
-          className="w-14 h-14 rounded-full bg-zinc-900 border-2 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/10 hover:border-emerald-400 flex items-center justify-center shadow-lg transition-transform active:scale-90 cursor-pointer shadow-emerald-500/20"
-          title="Beğen"
-        >
-          <Heart className="w-7 h-7 fill-emerald-400 text-emerald-400" />
-        </button>
-      </div>
+          {/* Watched Button */}
+          <button
+            type="button"
+            onClick={() => triggerSwipe('watched')}
+            className="w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-purple-500/60 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:scale-105 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            title="İzledim"
+          >
+            <Eye className="w-5 h-5 stroke-[2.2]" />
+          </button>
 
-      {/* Keyboard Shortcut Hints (Desktop) */}
-      <div className="flex items-center justify-center gap-5 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
-        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
-          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">Z</kbd> Geri Al
-        </span>
-        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
-          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">←</kbd> Pas
-        </span>
-        {isRoomMode && (
-          <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
-            <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">V</kbd> Veto ({remainingVetoes})
-          </span>
-        )}
-        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
-          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">↓ / ↑</kbd> İzledim
-        </span>
-        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
-          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">→</kbd> Beğen
-        </span>
+          {/* Like Button */}
+          <button
+            type="button"
+            onClick={() => triggerSwipe('like')}
+            className="w-14 h-14 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-emerald-500/70 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:scale-105 flex items-center justify-center shadow-2xl shadow-emerald-500/25 transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            title="Beğen"
+          >
+            <Heart className="w-7 h-7 fill-emerald-400 text-emerald-400" />
+          </button>
+        </div>
       </div>
     </div>
   )

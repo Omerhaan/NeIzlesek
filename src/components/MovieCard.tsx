@@ -147,7 +147,7 @@ export function MovieCard({
       <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
 
       {/* Bottom Gradient Overlay for readability */}
-      <div className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-black via-black/75 to-transparent pointer-events-none" />
+      <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
 
       {/* Swipe Feedback Stamp Badges */}
       {isTopCard && swipeDirection === 'like' && (
@@ -215,8 +215,8 @@ export function MovieCard({
         </div>
       )}
 
-      {/* Card Content Footer */}
-      <div className="relative z-10 p-5 pb-6 text-left flex flex-col gap-2 pointer-events-auto">
+      {/* Card Content Footer with bottom clearance for floating actions */}
+      <div className="relative z-10 p-5 pb-20 sm:pb-22 text-left flex flex-col gap-2 pointer-events-auto">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1">
             <h2 className="text-2xl font-black tracking-tight text-white leading-tight drop-shadow-md">
