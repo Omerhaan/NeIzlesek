@@ -56,6 +56,7 @@ export function SwipeDeck({
   const [remainingVetoes, setRemainingVetoes] = useState(3)
 
   const startPos = useRef({ x: 0, y: 0 })
+  const startTime = useRef(0)
   const isPointerDown = useRef(false)
   const swipeInProgress = useRef(false)
   const hasAutoOpenedFallback = useRef(false)
@@ -140,6 +141,7 @@ export function SwipeDeck({
           }
           setRoundIndex((prev) => prev + 1)
           swipeActionsRef.current.push(action)
+          swipeInProgress.current = false
           setDragOffset({ x: 0, y: 0 })
         }).catch(() => {
           if (action === 'veto') setRemainingVetoes((prev) => Math.min(3, prev + 1))
@@ -172,11 +174,12 @@ export function SwipeDeck({
     triggerSwipe('veto')
   }, [remainingVetoes, triggerSwipe])
 
-  const canUndo = roundIndex > 0 && !isLoading && !swipeInProgress.current
+  const canUndo = roundIndex > 0 && !isLoading
 
   const handleUndo = useCallback(() => {
-    if (roundIndex <= 0 || isLoading || swipeInProgress.current) return
+    if (roundIndex <= 0 || isLoading) return
     hapticLight()
+    swipeInProgress.current = false
     const lastAction = swipeActionsRef.current.pop()
     if (lastAction === 'veto') {
       setRemainingVetoes((prev) => Math.min(3, prev + 1))
@@ -221,12 +224,14 @@ export function SwipeDeck({
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [triggerSwipe, handleVetoClick, handleUndo, canUndo, roundIndex, roundLimit, hasRoundLimit, movies, isRoomMode])
 
-  // Touch & Mouse Handlers
+  // Touch & Mouse Handlers with responsive threshold & flick/velocity detection
   const handleStart = (clientX: number, clientY: number) => {
+    if (swipeInProgress.current) return
     isPointerDown.current = true
     hasThresholdVibrated.current = false
     setIsDragging(true)
     startPos.current = { x: clientX, y: clientY }
+    startTime.current = Date.now()
   }
 
   const handleMove = (clientX: number, clientY: number) => {
@@ -235,9 +240,8 @@ export function SwipeDeck({
     const dy = clientY - startPos.current.y
     setDragOffset({ x: dx, y: dy })
 
-    // Provide light tactile cue when crossing swipe activation threshold
-    const thresholdX = window.innerWidth * 0.25
-    if (!hasThresholdVibrated.current && (Math.abs(dx) > thresholdX || Math.abs(dy) > 60)) {
+    // Provide light tactile cue when crossing swipe activation threshold (~60px)
+    if (!hasThresholdVibrated.current && (Math.abs(dx) > 60 || Math.abs(dy) > 55)) {
       hasThresholdVibrated.current = true
       hapticLight()
     }
@@ -248,14 +252,29 @@ export function SwipeDeck({
     isPointerDown.current = false
     setIsDragging(false)
 
-    const thresholdX = window.innerWidth * 0.25
-    const thresholdY = window.innerHeight * 0.18
+    const elapsed = Math.max(1, Date.now() - startTime.current)
+    const dx = dragOffset.x
+    const dy = dragOffset.y
+    const absX = Math.abs(dx)
+    const absY = Math.abs(dy)
+    const velocityX = absX / elapsed
+    const velocityY = absY / elapsed
 
-    if (dragOffset.x > thresholdX) {
-      triggerSwipe('like')
-    } else if (dragOffset.x < -thresholdX) {
-      triggerSwipe('pass')
-    } else if (Math.abs(dragOffset.y) > thresholdY) {
+    // Fast flick: small distance (>= 35px) but high velocity in under 380ms
+    const isFlickX = elapsed < 380 && absX >= 35 && velocityX > 0.28
+    const isFlickY = elapsed < 380 && absY >= 35 && velocityY > 0.28
+
+    // Standard drag threshold (comfortably 65px instead of screen/4 which was 120-400px!)
+    const isSwipeX = absX >= 65 || isFlickX
+    const isSwipeY = absY >= 60 || isFlickY
+
+    if (isSwipeX && absX >= absY) {
+      if (dx > 0) {
+        triggerSwipe('like')
+      } else {
+        triggerSwipe('pass')
+      }
+    } else if (isSwipeY && absY > absX) {
       triggerSwipe('watched')
     } else {
       setDragOffset({ x: 0, y: 0 })
@@ -584,17 +603,24 @@ export function SwipeDeck({
             <div className="flex items-center gap-2 pointer-events-auto">
               <button
                 type="button"
-                onClick={handleUndo}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleUndo()
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
+                onTouchEnd={(e) => e.stopPropagation()}
                 disabled={!canUndo}
-                className={`p-1.5 rounded-xl border backdrop-blur-md transition-all flex items-center justify-center cursor-pointer ${
+                className={`w-8.5 h-8.5 rounded-xl border backdrop-blur-md transition-all flex items-center justify-center cursor-pointer ${
                   canUndo
-                    ? 'bg-zinc-950/80 hover:bg-zinc-900 text-amber-400 hover:text-amber-300 border-white/20 shadow-lg active:scale-90'
+                    ? 'bg-zinc-950/90 hover:bg-zinc-800 text-amber-400 hover:text-amber-300 border-amber-400/40 shadow-lg active:scale-90'
                     : 'bg-zinc-950/40 text-zinc-600 border-white/5 opacity-40 cursor-not-allowed'
                 }`}
                 title={canUndo ? 'Önceki filme geri dön (Z / Backspace)' : 'Geri alınacak film yok'}
                 aria-label="Geri Al"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw className="w-4 h-4" />
               </button>
 
               {hasRoundLimit ? (
@@ -624,6 +650,8 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={() => triggerSwipe('pass')}
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             style={{ transform: `scale(${1 + passProgress * 0.22})` }}
             className={`w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
               passProgress > 0.15
@@ -641,6 +669,8 @@ export function SwipeDeck({
               type="button"
               disabled={remainingVetoes <= 0}
               onClick={handleVetoClick}
+              onPointerDown={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
               style={{ transform: `scale(${1 + vetoProgress * 0.22})` }}
               className={`relative w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
                 remainingVetoes > 0
@@ -662,6 +692,8 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={() => triggerSwipe('watched')}
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             style={{ transform: `scale(${1 + watchedProgress * 0.22})` }}
             className={`w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
               watchedProgress > 0.15
@@ -677,6 +709,8 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={() => triggerSwipe('like')}
+            onPointerDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             style={{ transform: `scale(${1 + likeProgress * 0.22})` }}
             className={`w-14 h-14 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
               likeProgress > 0.15
