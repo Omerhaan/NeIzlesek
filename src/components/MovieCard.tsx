@@ -74,11 +74,9 @@ export function MovieCard({
   const dragProgress = Math.min(1, dragDist / 140)
   const isVertical = Math.abs(dragOffset.y) > Math.abs(dragOffset.x) * 1.15
 
-  // Drag threshold for stamping & aura feedback
-  const swipeDirection =
-    isVertical && dragOffset.y > 55
-      ? 'veto'
-      : isVertical && dragOffset.y < -45
+  // Drag threshold for stamping & aura feedback (both up & down = watched)
+  const swipeDirection: 'like' | 'pass' | 'watched' | 'veto' | null =
+    isVertical && Math.abs(dragOffset.y) > 45
       ? 'watched'
       : dragOffset.x > 45
       ? 'like'
@@ -105,8 +103,6 @@ export function MovieCard({
             ? `0 0 50px rgba(244, 63, 94, ${dragProgress * 0.55})`
             : swipeDirection === 'watched'
             ? `0 0 50px rgba(168, 85, 247, ${dragProgress * 0.55})`
-            : swipeDirection === 'veto'
-            ? `0 0 50px rgba(220, 38, 38, ${dragProgress * 0.6})`
             : undefined,
       }
     : {
@@ -129,8 +125,6 @@ export function MovieCard({
                 ? 'border-rose-500/80'
                 : swipeDirection === 'watched'
                 ? 'border-purple-400/80'
-                : swipeDirection === 'veto'
-                ? 'border-red-600/80'
                 : 'border-zinc-800'
             }`
           : 'z-10 border-zinc-800/80'
@@ -238,18 +232,6 @@ export function MovieCard({
           }}
         >
           👁️ İZLEDİM
-        </div>
-      )}
-
-      {isTopCard && swipeDirection === 'veto' && (
-        <div
-          className="absolute top-20 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-md pointer-events-none text-center z-30 transition-all duration-75"
-          style={{
-            opacity: Math.min(1, Math.abs(dragOffset.y) / 60),
-            transform: `scale(${0.85 + Math.min(0.3, Math.abs(dragOffset.y) / 140)})`,
-          }}
-        >
-          🚫 VETO
         </div>
       )}
 

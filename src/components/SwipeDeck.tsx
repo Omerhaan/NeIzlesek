@@ -126,7 +126,8 @@ export function SwipeDeck({
       } else {
         // watched
         hapticWatched()
-        setDragOffset({ x: dragOffset.x * 0.4, y: -window.innerHeight - 120 })
+        const exitY = dragOffset.y > 0 ? window.innerHeight + 120 : -window.innerHeight - 120
+        setDragOffset({ x: dragOffset.x * 0.4, y: exitY })
       }
 
       setTimeout(() => {
@@ -248,15 +249,13 @@ export function SwipeDeck({
     setIsDragging(false)
 
     const thresholdX = window.innerWidth * 0.25
-    const thresholdY = window.innerHeight * 0.2
+    const thresholdY = window.innerHeight * 0.18
 
     if (dragOffset.x > thresholdX) {
       triggerSwipe('like')
     } else if (dragOffset.x < -thresholdX) {
       triggerSwipe('pass')
-    } else if (dragOffset.y > thresholdY && isRoomMode && remainingVetoes > 0) {
-      handleVetoClick()
-    } else if (dragOffset.y < -thresholdY) {
+    } else if (Math.abs(dragOffset.y) > thresholdY) {
       triggerSwipe('watched')
     } else {
       setDragOffset({ x: 0, y: 0 })
@@ -526,8 +525,8 @@ export function SwipeDeck({
 
   const likeProgress = isHorizontalDrag && dragOffset.x > 25 ? Math.min(1, (dragOffset.x - 25) / 95) : 0
   const passProgress = isHorizontalDrag && dragOffset.x < -25 ? Math.min(1, (-dragOffset.x - 25) / 95) : 0
-  const watchedProgress = isVerticalDrag && dragOffset.y < -25 ? Math.min(1, (-dragOffset.y - 25) / 95) : 0
-  const vetoProgress = isVerticalDrag && dragOffset.y > 35 ? Math.min(1, (dragOffset.y - 35) / 95) : 0
+  const watchedProgress = isVerticalDrag && Math.abs(dragOffset.y) > 25 ? Math.min(1, (Math.abs(dragOffset.y) - 25) / 95) : 0
+  const vetoProgress = 0
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-3 sm:px-4 pb-3 pt-0.5 overflow-hidden">
