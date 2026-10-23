@@ -426,3 +426,21 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
   4. `public/.well-known/assetlinks.json`: Google Play Store TWA (Trusted Web Activity) tam ekran yerel görünüm doğrulama dosyası entegre edildi.
   5. `vercel.json`: Canlı üretim ortamında kesintisiz tek sayfa routing ve Service Worker önbellekleme desteği garantilendi.
 - **Doğrulama:** `npm run build` ile TypeScript ve Vite derlemesi 0 hata ile tamamlandı. PWA manifest ve servis işçisi doğrulaması yapıldı.
+
+---
+
+## 🔄 Anasayfa Geri Alma (Undo) & Beğenilen / İzlenen Tutarlılığı
+
+- [x] **Sol Üst Geri Alma Simgesi (RotateCcw):**
+  - Anasayfada kart yığınının sol üst köşesine modern, haptik geri bildirimli `RotateCcw` geri alma butonu eklendi.
+  - Kart geçmişi olduğunda (`roundIndex > 0`) aktifleşir; ilk karttayken pasifize olur.
+  - Masaüstü için `Z` ve `Backspace` klavye kısayolları eklendi, alt bilgi barında kısayol ipucu gösterildi.
+- [x] **Tüm Kaydırma Yönleri İçin Geri Alma:**
+  - Kullanıcı hangi yöne kaydırmış olursa olsun (**Beğen / Sağ**, **Pas / Sol**, **İzledim / Yukarı-Aşağı**, **Veto**), geri al tuşuna bastığında bir önceki kart ekrana geri gelir.
+  - Veto geri alındığında kullanıcının veto hakkı iade edilir (`remainingVetoes + 1`).
+- [x] **Beğenilen & İzlenen Karşılıklı Ayrıklık (Mutual Exclusivity) Garantisi:**
+  - `updateTasteWithSwipe`: Bir film "izlendi" olarak işaretlendiğinde, daha önceden beğenilmiş olsa dahi kesin olarak `likedMovies` listesinden filtrelenip kaldırılır.
+  - Tersine, izlenen veya pas geçilen bir film beğenilirse `watchedMovieIds` ve `watchedMovies` listesinden kaldırılır.
+  - Tür zevk skorları (genre scores) net fark formülü (`netDelta = newDelta - oldDelta`) ile güncellenerek mükerrer puan şişmesi engellenir.
+  - Supabase `room_swipes` üzerinde `ignoreDuplicates: false` ayarlanarak geri alma sonrası değişen kararlar veritabanında da güncellenir.
+- [x] **Doğrulama:** `npm run build` ile derleme hatasız tamamlandı.

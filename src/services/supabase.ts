@@ -167,7 +167,7 @@ export async function recordSwipe(
     try {
       const { error } = await supabase.from('room_swipes').upsert(payload, {
         onConflict: 'room_id,user_name,movie_id,round_number',
-        ignoreDuplicates: true,
+        ignoreDuplicates: false,
       }).abortSignal(controller.signal)
       if (error) throw error
       saved = true

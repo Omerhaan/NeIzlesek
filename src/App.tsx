@@ -170,6 +170,8 @@ export function App() {
   const moviesRef = useRef(movies)
   moviesRef.current = movies
 
+  const swipeHistoryRef = useRef<Array<{ movie: Movie; action: SwipeAction; previousProfile: TasteProfile }>>([])
+
   // Check Supabase Auth user on mount
   useEffect(() => {
     getCurrentAuthUser().then((user) => {
@@ -636,6 +638,13 @@ export function App() {
       }
     }
 
+    // Save previous snapshot for undo functionality
+    swipeHistoryRef.current.push({
+      movie,
+      action,
+      previousProfile: tasteProfile,
+    })
+
     // Learn only after the room accepted the swipe, so retries do not double-count taste.
     const updated = updateTasteWithSwipe(tasteProfile, movie, action)
     setTasteProfile(updated)
@@ -645,7 +654,19 @@ export function App() {
     return true
   }
 
+  const handleUndo = useCallback(() => {
+    const lastAction = swipeHistoryRef.current.pop()
+    if (!lastAction) return
+
+    setTasteProfile(lastAction.previousProfile)
+    saveTasteProfile(lastAction.previousProfile)
+    if (authUser) {
+      void syncProfileToCloud(lastAction.previousProfile)
+    }
+  }, [authUser])
+
   const handleLoadNextRound = async () => {
+    swipeHistoryRef.current = []
     const nextPage = page + 1
     if (room) {
       // Prepare this user's next 25-film deck, then advance the shared room round.
@@ -676,6 +697,7 @@ export function App() {
   }
 
   const handleApplyFilters = (newFilters: FilterState) => {
+    swipeHistoryRef.current = []
     setFilters(newFilters)
     setRoundNumber(1)
     const limit = room ? 25 : 20
@@ -768,6 +790,7 @@ export function App() {
                 key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
                 movies={movies}
                 onSwipe={handleSwipe}
+                onUndo={handleUndo}
                 onLoadNextRound={handleLoadNextRound}
                 onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
                 isLoading={isLoading}

@@ -25,11 +25,13 @@ interface SwipeDeckProps {
   partnerSwipesCount?: number
   initialIndex?: number
   vetoedMovieIds?: Set<number>
+  onUndo?: () => void
 }
 
 export function SwipeDeck({
   movies,
   onSwipe,
+  onUndo,
   onLoadNextRound,
   onRoundComplete,
   onResetGenre,
@@ -58,6 +60,7 @@ export function SwipeDeck({
   const swipeInProgress = useRef(false)
   const hasAutoOpenedFallback = useRef(false)
   const hasThresholdVibrated = useRef(false)
+  const swipeActionsRef = useRef<SwipeAction[]>([])
 
   useEffect(() => {
     swipeInProgress.current = false
@@ -67,6 +70,7 @@ export function SwipeDeck({
   useEffect(() => {
     hasAutoOpenedFallback.current = false
     setRemainingVetoes(3)
+    swipeActionsRef.current = []
   }, [roundNumber])
 
   // Sync initialIndex if updated externally
@@ -134,6 +138,7 @@ export function SwipeDeck({
             return
           }
           setRoundIndex((prev) => prev + 1)
+          swipeActionsRef.current.push(action)
           setDragOffset({ x: 0, y: 0 })
         }).catch(() => {
           if (action === 'veto') setRemainingVetoes((prev) => Math.min(3, prev + 1))
@@ -166,11 +171,31 @@ export function SwipeDeck({
     triggerSwipe('veto')
   }, [remainingVetoes, triggerSwipe])
 
+  const canUndo = roundIndex > 0 && !isLoading && !swipeInProgress.current
+
+  const handleUndo = useCallback(() => {
+    if (roundIndex <= 0 || isLoading || swipeInProgress.current) return
+    hapticLight()
+    const lastAction = swipeActionsRef.current.pop()
+    if (lastAction === 'veto') {
+      setRemainingVetoes((prev) => Math.min(3, prev + 1))
+    }
+    setDragOffset({ x: 0, y: 0 })
+    setRoundIndex((prev) => Math.max(0, prev - 1))
+    onUndo?.()
+  }, [roundIndex, isLoading, onUndo])
+
   // Keyboard Navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+        return
+      }
+
+      if ((e.key.toLowerCase() === 'z' || e.key === 'Backspace') && canUndo) {
+        e.preventDefault()
+        handleUndo()
         return
       }
 
@@ -193,7 +218,7 @@ export function SwipeDeck({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [triggerSwipe, handleVetoClick, roundIndex, roundLimit, hasRoundLimit, movies, isRoomMode])
+  }, [triggerSwipe, handleVetoClick, handleUndo, canUndo, roundIndex, roundLimit, hasRoundLimit, movies, isRoomMode])
 
   // Touch & Mouse Handlers
   const handleStart = (clientX: number, clientY: number) => {
@@ -497,39 +522,56 @@ export function SwipeDeck({
 
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col justify-between px-4 pb-4 overflow-hidden">
-      {/* Top Round Progress Bar or Solo Discovery Indicator */}
-      <div className="w-full py-1.5 flex flex-col gap-1.5 z-10">
-        {hasRoundLimit ? (
-          <>
-            <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
-                {isRoomMode && roomMode === 'group' && (
-                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
-                    🍿 Watch Party ({groupParticipants.length > 0 ? groupParticipants.length : 3} Kişi)
-                  </span>
-                )}
+      {/* Top Round Progress Bar or Solo Discovery Indicator with Undo Button */}
+      <div className="w-full py-1.5 flex items-center gap-2.5 z-10">
+        <button
+          type="button"
+          onClick={handleUndo}
+          disabled={!canUndo}
+          className={`shrink-0 p-2 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
+            canUndo
+              ? 'bg-zinc-900 hover:bg-zinc-800 text-amber-400 hover:text-amber-300 border-zinc-700/80 shadow-md active:scale-90'
+              : 'bg-zinc-900/30 text-zinc-600 border-zinc-800/40 opacity-30 cursor-not-allowed'
+          }`}
+          title={canUndo ? 'Önceki filme geri dön (Z / Backspace)' : 'Geri alınacak film yok'}
+          aria-label="Geri Al"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+
+        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+          {hasRoundLimit ? (
+            <>
+              <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
+                <div className="flex items-center gap-2 truncate">
+                  <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
+                  {isRoomMode && roomMode === 'group' && (
+                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 truncate">
+                      🍿 Watch Party ({groupParticipants && groupParticipants.length > 0 ? groupParticipants.length : 3} Kişi)
+                    </span>
+                  )}
+                </div>
+                <span className="text-white font-mono shrink-0 ml-2">{currentCount} / {effectiveLimit}</span>
               </div>
-              <span className="text-white font-mono">{currentCount} / {effectiveLimit}</span>
+              <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full transition-all duration-300"
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
+              <span className="inline-flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold truncate">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                Sınırsız Keşif
+              </span>
+              <span className="text-zinc-400 text-[11px] font-medium shrink-0 ml-2">
+                🍿 <strong className="text-white">{totalSwipesCount}</strong> film incelendi
+              </span>
             </div>
-            <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full transition-all duration-300"
-                style={{ width: `${progressPercent}%` }}
-              />
-            </div>
-          </>
-        ) : (
-          <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-            <span className="inline-flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              Sınırsız Keşif
-            </span>
-            <span className="text-zinc-400 text-[11px] font-medium">
-              🍿 <strong className="text-white">{totalSwipesCount}</strong> film incelendi
-            </span>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Card Stack Area */}
@@ -620,7 +662,10 @@ export function SwipeDeck({
       </div>
 
       {/* Keyboard Shortcut Hints (Desktop) */}
-      <div className="flex items-center justify-center gap-6 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
+      <div className="flex items-center justify-center gap-5 text-[11px] text-zinc-500 font-mono select-none pt-0.5 pb-1">
+        <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
+          <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">Z</kbd> Geri Al
+        </span>
         <span className="flex items-center gap-1.5 hover:text-zinc-400 transition-colors">
           <kbd className="px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-zinc-300">←</kbd> Pas
         </span>

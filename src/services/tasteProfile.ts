@@ -436,21 +436,41 @@ export function updateTasteWithSwipe(
   const updatedScores = { ...profile.genreScores }
   const movieGenreIds = movie.genre_ids || []
 
-  // Score adjustments
-  const delta = action === 'like' ? 2 : action === 'watched' ? 1 : -1
+  // Check if movie already had a previous state to adjust score delta accurately
+  const wasLiked = (profile.likedMovies || []).some((m) => m.id === movie.id)
+  const wasWatched = (profile.watchedMovieIds || []).includes(movie.id)
+  const wasPassed = (profile.passedMovieIds || []).includes(movie.id)
+
+  let oldDelta = 0
+  if (wasLiked) oldDelta = 2
+  else if (wasWatched) oldDelta = 1
+  else if (wasPassed) oldDelta = -1
+
+  const newDelta = action === 'like' ? 2 : action === 'watched' ? 1 : -1
+  const netDelta = wasLiked || wasWatched || wasPassed ? newDelta - oldDelta : newDelta
 
   for (const gId of movieGenreIds) {
-    updatedScores[gId] = (updatedScores[gId] || 0) + delta
+    updatedScores[gId] = (updatedScores[gId] || 0) + netDelta
   }
 
-  const updatedLiked = [...(profile.likedMovies || [])]
-  const updatedWatched = [...(profile.watchedMovieIds || [])]
-  const updatedWatchedEntries = [...(profile.watchedMovies || [])]
-  const updatedPassed = [...(profile.passedMovieIds || [])]
+  // Ensure strict mutual exclusivity between liked, watched and passed lists
+  let updatedLiked = [...(profile.likedMovies || [])]
+  let updatedWatched = [...(profile.watchedMovieIds || [])]
+  let updatedWatchedEntries = [...(profile.watchedMovies || [])]
+  let updatedPassed = [...(profile.passedMovieIds || [])]
 
-  if (action === 'like' && !updatedLiked.some((m) => m.id === movie.id)) {
-    updatedLiked.unshift(movie)
+  if (action === 'like') {
+    // Remove from watched and passed if present
+    updatedWatched = updatedWatched.filter((id) => id !== movie.id)
+    updatedWatchedEntries = updatedWatchedEntries.filter((w) => w.movie.id !== movie.id)
+    updatedPassed = updatedPassed.filter((id) => id !== movie.id)
+    if (!updatedLiked.some((m) => m.id === movie.id)) {
+      updatedLiked.unshift(movie)
+    }
   } else if (action === 'watched') {
+    // Crucial: remove from liked and passed so it only remains in watched
+    updatedLiked = updatedLiked.filter((m) => m.id !== movie.id)
+    updatedPassed = updatedPassed.filter((id) => id !== movie.id)
     if (!updatedWatched.includes(movie.id)) {
       updatedWatched.push(movie.id)
     }
@@ -460,8 +480,14 @@ export function updateTasteWithSwipe(
         watchedAt: new Date().toISOString(),
       })
     }
-  } else if (action === 'pass' && !updatedPassed.includes(movie.id)) {
-    updatedPassed.push(movie.id)
+  } else if (action === 'pass' || action === 'veto') {
+    // Remove from liked and watched if changing to pass/veto
+    updatedLiked = updatedLiked.filter((m) => m.id !== movie.id)
+    updatedWatched = updatedWatched.filter((id) => id !== movie.id)
+    updatedWatchedEntries = updatedWatchedEntries.filter((w) => w.movie.id !== movie.id)
+    if (!updatedPassed.includes(movie.id)) {
+      updatedPassed.push(movie.id)
+    }
   }
 
   const updated: TasteProfile = {
@@ -471,7 +497,7 @@ export function updateTasteWithSwipe(
     watchedMovieIds: updatedWatched,
     watchedMovies: updatedWatchedEntries,
     passedMovieIds: updatedPassed,
-    totalSwipes: profile.totalSwipes + 1,
+    totalSwipes: wasLiked || wasWatched || wasPassed ? profile.totalSwipes : profile.totalSwipes + 1,
   }
 
   saveTasteProfile(updated)
