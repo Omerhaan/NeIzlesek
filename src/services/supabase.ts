@@ -716,6 +716,23 @@ export function subscribeToRoom(
         }
       }
     )
+    .on(
+      'postgres_changes',
+      {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'room_swipes',
+        filter: `room_id=eq.${roomId}`,
+      },
+      () => {
+        // Partner undid a swipe: sync updated progress count in realtime
+        if (onPartnerSwiped) {
+          void fetchRoomSwipesCount(roomId, myUserId, roundNumber).then(({ partnerCount }) => {
+            onPartnerSwiped(partnerCount)
+          }).catch((error) => console.error('Failed to refresh partner progress after undo:', error))
+        }
+      }
+    )
     .subscribe(async (status) => {
       if (status === 'SUBSCRIBED') {
         if (myGenreScores && Object.keys(myGenreScores).length > 0) {

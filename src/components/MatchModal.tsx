@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import confetti from 'canvas-confetti'
-import { Sparkles, Star, Film, X } from 'lucide-react'
+import { Sparkles, Star, Film, X, Share2, Check } from 'lucide-react'
 import type { Movie } from '../types'
 import { LOGO_BASE_URL } from '../services/tmdb'
 import { MovieArtwork } from './MovieArtwork'
@@ -13,6 +13,35 @@ interface MatchModalProps {
 }
 
 export function MatchModal({ movie, isOpen, onClose }: MatchModalProps) {
+  const [copiedToast, setCopiedToast] = useState(false)
+
+  const handleShare = async () => {
+    if (!movie) return
+    const shareText = `Biz "${movie.title}" filminde eşleştik! 🍿 Ne İzlesek? ile film bulmak çok kolay.`
+    const shareUrl = window.location.origin
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `Film Eşleşmesi: ${movie.title}`,
+          text: shareText,
+          url: shareUrl,
+        })
+        return
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${shareText}\n${shareUrl}`)
+      setCopiedToast(true)
+      setTimeout(() => setCopiedToast(false), 2500)
+    } catch {
+      // ignore
+    }
+  }
+
   useEffect(() => {
     if (isOpen) {
       hapticMatch()
@@ -122,6 +151,15 @@ export function MatchModal({ movie, isOpen, onClose }: MatchModalProps) {
 
         {/* Actions */}
         <div className="p-6 flex flex-col gap-2.5">
+          <button
+            type="button"
+            onClick={handleShare}
+            className="w-full py-3 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/25 transition-transform active:scale-98 cursor-pointer"
+          >
+            {copiedToast ? <Check className="w-4 h-4 text-emerald-200" /> : <Share2 className="w-4 h-4" />}
+            <span>{copiedToast ? 'Bağlantı Kopyalandı! 📋' : 'Eşleşmeyi Arkadaşınla Paylaş'}</span>
+          </button>
+
           <a
             href={`https://www.google.com/search?q=${encodeURIComponent(movie.title + ' filmi izle')}`}
             target="_blank"
