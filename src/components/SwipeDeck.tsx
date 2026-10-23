@@ -521,61 +521,9 @@ export function SwipeDeck({
   const progressPercent = Math.min(100, (roundIndex / effectiveLimit) * 100)
 
   return (
-    <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-3 sm:px-4 pb-3 overflow-hidden">
-      {/* Top Round Progress Bar or Solo Discovery Indicator with Undo Button */}
-      <div className="w-full py-1.5 flex items-center gap-2.5 z-10 shrink-0">
-        <button
-          type="button"
-          onClick={handleUndo}
-          disabled={!canUndo}
-          className={`shrink-0 p-2 rounded-xl border transition-all flex items-center justify-center cursor-pointer ${
-            canUndo
-              ? 'bg-zinc-900 hover:bg-zinc-800 text-amber-400 hover:text-amber-300 border-zinc-700/80 shadow-md active:scale-90'
-              : 'bg-zinc-900/30 text-zinc-600 border-zinc-800/40 opacity-30 cursor-not-allowed'
-          }`}
-          title={canUndo ? 'Önceki filme geri dön (Z / Backspace)' : 'Geri alınacak film yok'}
-          aria-label="Geri Al"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-        </button>
-
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-          {hasRoundLimit ? (
-            <>
-              <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-                <div className="flex items-center gap-2 truncate">
-                  <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
-                  {isRoomMode && roomMode === 'group' && (
-                    <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 truncate">
-                      🍿 Watch Party ({groupParticipants && groupParticipants.length > 0 ? groupParticipants.length : 3} Kişi)
-                    </span>
-                  )}
-                </div>
-                <span className="text-white font-mono shrink-0 ml-2">{currentCount} / {effectiveLimit}</span>
-              </div>
-              <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-red-600 to-amber-500 rounded-full transition-all duration-300"
-                  style={{ width: `${progressPercent}%` }}
-                />
-              </div>
-            </>
-          ) : (
-            <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-              <span className="inline-flex items-center gap-1.5 text-emerald-400 text-[11px] font-bold truncate">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                Sınırsız Keşif
-              </span>
-              <span className="text-zinc-400 text-[11px] font-medium shrink-0 ml-2">
-                🍿 <strong className="text-white">{totalSwipesCount}</strong> film incelendi
-              </span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Main Card & Floating Actions Stage */}
-      <div className="relative flex-1 w-full min-h-0 my-1">
+    <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-3 sm:px-4 pb-3 pt-0.5 overflow-hidden">
+      {/* Main Card & Floating Overlays Stage */}
+      <div className="relative flex-1 w-full min-h-0">
         {/* Card Stack Area */}
         <div
           className="absolute inset-0 w-full h-full touch-none select-none"
@@ -608,6 +556,58 @@ export function SwipeDeck({
             isDragging={isDragging}
             onOpenDetails={onOpenDetails}
           />
+        </div>
+
+        {/* Floating Story-Style Top Bar Overlay (Thin Progress Line + Undo & Round Status) */}
+        <div className="absolute top-2.5 inset-x-3.5 z-30 pointer-events-none flex flex-col gap-2">
+          {/* Story Progress Bar */}
+          {hasRoundLimit && (
+            <div className="w-full h-1 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-white/10 shadow-sm">
+              <div
+                className="h-full bg-gradient-to-r from-red-500 via-rose-500 to-amber-400 rounded-full transition-all duration-300"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          )}
+
+          {/* Controls & Round Info Row */}
+          <div className="flex items-center justify-between pointer-events-none">
+            {/* Left: Undo Button + Round/Solo Badge */}
+            <div className="flex items-center gap-2 pointer-events-auto">
+              <button
+                type="button"
+                onClick={handleUndo}
+                disabled={!canUndo}
+                className={`p-1.5 rounded-xl border backdrop-blur-md transition-all flex items-center justify-center cursor-pointer ${
+                  canUndo
+                    ? 'bg-zinc-950/80 hover:bg-zinc-900 text-amber-400 hover:text-amber-300 border-white/20 shadow-lg active:scale-90'
+                    : 'bg-zinc-950/40 text-zinc-600 border-white/5 opacity-40 cursor-not-allowed'
+                }`}
+                title={canUndo ? 'Önceki filme geri dön (Z / Backspace)' : 'Geri alınacak film yok'}
+                aria-label="Geri Al"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+
+              {hasRoundLimit ? (
+                <div className="flex items-center gap-1.5 bg-zinc-950/70 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 text-[11px] font-medium text-zinc-300 shadow">
+                  <span className="text-zinc-400">Tur {roundNumber}</span>
+                  <span className="text-zinc-600">•</span>
+                  <span className="text-white font-mono font-bold">{currentCount}/{effectiveLimit}</span>
+                  {isRoomMode && roomMode === 'group' && (
+                    <span className="text-[10px] font-bold text-amber-400 ml-1">
+                      🍿 {groupParticipants && groupParticipants.length > 0 ? groupParticipants.length : 3}P
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 bg-zinc-950/70 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 text-[11px] font-medium text-zinc-300 shadow">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-zinc-400">🍿 <strong className="text-white">{totalSwipesCount}</strong></span>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Floating Centered Action Buttons Toolbar (Tinder-style dock floating over card bottom) */}

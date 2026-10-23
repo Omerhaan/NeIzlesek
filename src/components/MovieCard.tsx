@@ -144,7 +144,7 @@ export function MovieCard({
       )}
 
       {/* Subtle top shadow */}
-      <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/70 to-transparent pointer-events-none" />
+      <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none" />
 
       {/* Bottom Gradient Overlay for readability */}
       <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
@@ -152,7 +152,7 @@ export function MovieCard({
       {/* Swipe Feedback Stamp Badges */}
       {isTopCard && swipeDirection === 'like' && (
         <div
-          className="absolute top-10 left-8 border-4 border-emerald-400 text-emerald-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl -rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse"
+          className="absolute top-18 left-6 border-4 border-emerald-400 text-emerald-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl -rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse z-20"
           style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
         >
           BEĞEN
@@ -161,7 +161,7 @@ export function MovieCard({
 
       {isTopCard && swipeDirection === 'pass' && (
         <div
-          className="absolute top-10 right-8 border-4 border-rose-500 text-rose-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse"
+          className="absolute top-18 right-6 border-4 border-rose-500 text-rose-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse z-20"
           style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
         >
           PAS
@@ -170,15 +170,15 @@ export function MovieCard({
 
       {isTopCard && swipeDirection === 'veto' && (
         <div
-          className="absolute top-10 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-sm pointer-events-none text-center animate-pulse z-30"
+          className="absolute top-18 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-sm pointer-events-none text-center animate-pulse z-30"
         >
           🚫 VETO
         </div>
       )}
 
-      {/* Sponsored / Now-Playing Spotlight Badge (Top Left) */}
+      {/* Sponsored / Now-Playing Spotlight Badge (Placed cleanly below top story bar) */}
       {movie.isSponsored && (
-        <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/90 via-orange-500/90 to-red-600/90 text-white font-black text-[11px] shadow-lg border border-amber-300/40 backdrop-blur-md uppercase tracking-wider">
+        <div className="absolute top-14 left-3.5 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/90 via-orange-500/90 to-red-600/90 text-white font-black text-[11px] shadow-lg border border-amber-300/40 backdrop-blur-md uppercase tracking-wider">
           <span>{movie.sponsorLabel || 'Vizyonda 🍿'}</span>
           {movie.sponsorCtaUrl && (
             <a
@@ -195,16 +195,16 @@ export function MovieCard({
         </div>
       )}
 
-      {/* Streaming Platform Badges (Top Right) */}
+      {/* Streaming Platform Badges (Top Right, aligned with top story bar) */}
       {movie.providers && movie.providers.length > 0 && (
-        <div className="absolute top-4 right-4 z-10 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1.5 rounded-full border border-white/10">
+        <div className="absolute top-5.5 right-3.5 z-10 flex items-center gap-1.5 bg-black/65 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/10 shadow-md">
           {movie.providers.slice(0, 3).map((provider) => (
             <img
               key={provider.provider_id}
               src={`${LOGO_BASE_URL}${provider.logo_path}`}
               alt={provider.provider_name}
               title={provider.provider_name}
-              className="w-5 h-5 rounded-md object-cover shadow"
+              className="w-4.5 h-4.5 rounded-md object-cover shadow"
             />
           ))}
           {movie.providers.length > 3 && (
