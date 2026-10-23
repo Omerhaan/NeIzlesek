@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="50%" stop-color="#e11d48" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#e11d48" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <!-- Rounded Squircle Background -->
+  <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#bgGrad)" filter="url(#shadow)" />
+  
+  <!-- Film Reel & Frame Artwork -->
+  <g transform="translate(128, 128) scale(10.666)" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <rect width="20" height="20" x="2" y="2" rx="2.5" />
+    <path d="M7 2v20" />
+    <path d="M17 2v20" />
+    <path d="M2 12h20" />
+    <path d="M2 7h5" />
+    <path d="M2 17h5" />
+    <path d="M17 17h5" />
+    <path d="M17 7h5" />
+  </g>
+</svg>

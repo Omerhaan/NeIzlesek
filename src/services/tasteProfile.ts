@@ -1,4 +1,4 @@
-import type { Movie, SwipeAction, WatchedMovieEntry } from '../types'
+import type { Movie, SwipeAction, WatchedMovieEntry, MatchedMovieEntry } from '../types'
 import { GENRES } from './tmdb'
 
 export interface TasteProfile {
@@ -6,12 +6,14 @@ export interface TasteProfile {
   username: string
   avatar: string
   isOnboarded: boolean
+  coldStartCompleted?: boolean
   genreScores: Record<number, number> // genreId -> score
   likedMovies: Movie[]
   watchedMovieIds: number[]
   watchedMovies: WatchedMovieEntry[]
   passedMovieIds: number[]
   totalSwipes: number
+  matchHistory?: MatchedMovieEntry[]
 }
 
 const STORAGE_KEY = 'neizlesek_taste_profile_v1'
@@ -640,4 +642,129 @@ export function getJointRoomGenres(
 
   // Union if no intersection
   return Array.from(new Set([...user1Genres, ...user2Genres]))
+}
+
+// Calculate Life Counter (Total time dedicated to movies)
+export function calculateLifeCounter(watchedMovies: WatchedMovieEntry[] = []): {
+  days: number
+  hours: number
+  minutes: number
+  totalMinutes: number
+} {
+  let totalMinutes = 0
+  for (const entry of watchedMovies) {
+    const runtime = entry.movie?.runtime && entry.movie.runtime > 0 ? entry.movie.runtime : 110
+    totalMinutes += runtime
+  }
+  const days = Math.floor(totalMinutes / (24 * 60))
+  const hours = Math.floor((totalMinutes % (24 * 60)) / 60)
+  const minutes = totalMinutes % 60
+  return { days, hours, minutes, totalMinutes }
+}
+
+// Calculate comprehensive profile statistics
+export function calculateProfileStats(profile: TasteProfile): {
+  totalSwipes: number
+  watchedCount: number
+  likedCount: number
+  passedCount: number
+  likeRatio: number
+  averageRating: number | null
+  totalRatedCount: number
+} {
+  const watchedCount = (profile.watchedMovies || []).length
+  const likedCount = (profile.likedMovies || []).length
+  const passedCount = (profile.passedMovieIds || []).length
+  const totalSwipes = profile.totalSwipes || 0
+
+  const likeRatio = totalSwipes > 0 ? Math.round((likedCount / totalSwipes) * 100) : 0
+
+  const ratedEntries = (profile.watchedMovies || []).filter((w) => w.rating !== undefined && w.rating > 0)
+  const averageRating =
+    ratedEntries.length > 0
+      ? Number((ratedEntries.reduce((sum, curr) => sum + (curr.rating || 0), 0) / ratedEntries.length).toFixed(1))
+      : null
+
+  return {
+    totalSwipes,
+    watchedCount,
+    likedCount,
+    passedCount,
+    likeRatio,
+    averageRating,
+    totalRatedCount: ratedEntries.length,
+  }
+}
+
+// Calculate couple taste compatibility score (30% - 99%)
+export function calculateCoupleCompatibility(
+  myScores: Record<number, number> = {},
+  partnerScores?: Record<number, number> | null
+): number | null {
+  if (!partnerScores || Object.keys(partnerScores).length === 0) {
+    return null
+  }
+
+  let dotProduct = 0
+  let normA = 0
+  let normB = 0
+  const allGenreIds = new Set([...Object.keys(myScores), ...Object.keys(partnerScores)].map(Number))
+
+  for (const gId of allGenreIds) {
+    const a = myScores[gId] || 0
+    const b = partnerScores[gId] || 0
+    dotProduct += a * b
+    normA += a * a
+    normB += b * b
+  }
+
+  if (normA === 0 || normB === 0) return null
+  const cosine = dotProduct / (Math.sqrt(normA) * Math.sqrt(normB))
+  return Math.min(99, Math.max(30, Math.round(30 + cosine * 68)))
+}
+
+// Add a matched movie to history archive
+export function addMatchedMovie(
+  profile: TasteProfile,
+  movie: Movie,
+  roomCode?: string,
+  partnerName?: string
+): TasteProfile {
+  const existingHistory = profile.matchHistory || []
+  if (existingHistory.some((item) => item.movie.id === movie.id)) {
+    return profile
+  }
+
+  const newEntry: MatchedMovieEntry = {
+    movie,
+    matchedAt: new Date().toISOString(),
+    roomCode,
+    partnerName,
+  }
+
+  const updated: TasteProfile = {
+    ...profile,
+    matchHistory: [newEntry, ...existingHistory],
+  }
+  saveTasteProfile(updated)
+  return updated
+}
+
+// Update rating for an entry in match history archive
+export function updateMatchRating(
+  profile: TasteProfile,
+  movieId: number,
+  myRating: number
+): TasteProfile {
+  const existingHistory = profile.matchHistory || []
+  const updatedHistory = existingHistory.map((item) =>
+    item.movie.id === movieId ? { ...item, myRating } : item
+  )
+
+  const updated: TasteProfile = {
+    ...profile,
+    matchHistory: updatedHistory,
+  }
+  saveTasteProfile(updated)
+  return updated
 }

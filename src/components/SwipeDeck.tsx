@@ -1,8 +1,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { X, Heart, Eye, RotateCcw, Sparkles, Ban, Trophy, Users } from 'lucide-react'
-import type { Movie, SwipeAction } from '../types'
-import { IMAGE_BASE_URL } from '../services/tmdb'
+import type { Movie, SwipeAction, RoomMode, GroupParticipant } from '../types'
+import { getMovieImageCandidates } from '../services/tmdb'
 import { MovieCard } from './MovieCard'
+import { hapticLike, hapticPass, hapticVeto, hapticWatched, hapticLight } from '../utils/haptics'
 
 interface SwipeDeckProps {
   movies: Movie[]
@@ -15,9 +16,12 @@ interface SwipeDeckProps {
   roundLimit?: number
   hasRoundLimit?: boolean
   isRoomMode?: boolean
+  roomMode?: RoomMode
+  groupParticipants?: GroupParticipant[]
   totalSwipesCount?: number
   onOpenDetails?: (movie: Movie) => void
   onOpenFallback?: () => void
+  onOpenGroupResults?: () => void
   partnerSwipesCount?: number
   initialIndex?: number
   vetoedMovieIds?: Set<number>
@@ -34,9 +38,12 @@ export function SwipeDeck({
   roundLimit = 25,
   hasRoundLimit = true,
   isRoomMode = false,
+  roomMode = 'pair',
+  groupParticipants = [],
   totalSwipesCount = 0,
   onOpenDetails,
   onOpenFallback,
+  onOpenGroupResults,
   partnerSwipesCount,
   initialIndex = 0,
   vetoedMovieIds,
@@ -50,6 +57,7 @@ export function SwipeDeck({
   const isPointerDown = useRef(false)
   const swipeInProgress = useRef(false)
   const hasAutoOpenedFallback = useRef(false)
+  const hasThresholdVibrated = useRef(false)
 
   useEffect(() => {
     swipeInProgress.current = false
@@ -87,9 +95,10 @@ export function SwipeDeck({
     if (!movies || movies.length === 0) return
     const nextMovies = movies.slice(roundIndex, roundIndex + 4)
     nextMovies.forEach((m) => {
-      if (m.poster_path) {
+      const candidates = getMovieImageCandidates(m)
+      if (candidates.length > 0) {
         const img = new Image()
-        img.src = `${IMAGE_BASE_URL}${m.poster_path}`
+        img.src = candidates[0]
       }
     })
   }, [roundIndex, movies])
@@ -100,15 +109,19 @@ export function SwipeDeck({
       if (!currentMovie || isLoading || swipeInProgress.current) return
       swipeInProgress.current = true
 
-      // Set target offset for exit animation
+      // Set target offset for exit animation and trigger haptic feedback
       if (action === 'pass') {
+        hapticPass()
         setDragOffset({ x: -window.innerWidth - 100, y: 0 })
       } else if (action === 'like') {
+        hapticLike()
         setDragOffset({ x: window.innerWidth + 100, y: 0 })
       } else if (action === 'veto') {
+        hapticVeto()
         setDragOffset({ x: 0, y: window.innerHeight + 100 })
       } else {
         // watched
+        hapticWatched()
         setDragOffset({ x: 0, y: -window.innerHeight - 100 })
       }
 
@@ -185,6 +198,7 @@ export function SwipeDeck({
   // Touch & Mouse Handlers
   const handleStart = (clientX: number, clientY: number) => {
     isPointerDown.current = true
+    hasThresholdVibrated.current = false
     setIsDragging(true)
     startPos.current = { x: clientX, y: clientY }
   }
@@ -194,6 +208,13 @@ export function SwipeDeck({
     const dx = clientX - startPos.current.x
     const dy = clientY - startPos.current.y
     setDragOffset({ x: dx, y: dy })
+
+    // Provide light tactile cue when crossing swipe activation threshold
+    const thresholdX = window.innerWidth * 0.25
+    if (!hasThresholdVibrated.current && (Math.abs(dx) > thresholdX || Math.abs(dy) > 60)) {
+      hasThresholdVibrated.current = true
+      hapticLight()
+    }
   }
 
   const handleEnd = () => {
@@ -221,6 +242,7 @@ export function SwipeDeck({
   useEffect(() => {
     if (
       isRoomMode &&
+      roomMode !== 'group' &&
       hasRoundLimit &&
       movies.length > 0 &&
       roundIndex >= effectiveLimit &&
@@ -234,11 +256,124 @@ export function SwipeDeck({
       }, 700)
       return () => clearTimeout(timer)
     }
-  }, [isRoomMode, hasRoundLimit, movies.length, roundIndex, effectiveLimit, partnerSwipesCount, onOpenFallback])
+  }, [isRoomMode, roomMode, hasRoundLimit, movies.length, roundIndex, effectiveLimit, partnerSwipesCount, onOpenFallback])
+
+  // Automatically trigger group results modal ONCE when all group members finish
+  const hasAutoOpenedGroup = useRef(false)
+  useEffect(() => {
+    if (
+      isRoomMode &&
+      roomMode === 'group' &&
+      hasRoundLimit &&
+      movies.length > 0 &&
+      roundIndex >= effectiveLimit &&
+      !hasAutoOpenedGroup.current &&
+      onOpenGroupResults
+    ) {
+      const others = groupParticipants.filter((p) => p.userId !== undefined)
+      const allFinished = others.length > 0 && others.every((p) => (p.swipesCount || 0) >= effectiveLimit)
+      if (allFinished) {
+        const timer = setTimeout(() => {
+          hasAutoOpenedGroup.current = true
+          onOpenGroupResults()
+        }, 700)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [isRoomMode, roomMode, hasRoundLimit, movies.length, roundIndex, effectiveLimit, groupParticipants, onOpenGroupResults])
 
   // End of Round (25 Movies Limit or end of curated deck) in Room Mode
   if (hasRoundLimit && movies.length > 0 && roundIndex >= effectiveLimit) {
     onRoundComplete?.()
+
+    // 1. Group Mode Live Scoreboard & Results
+    if (isRoomMode && roomMode === 'group') {
+      const others = groupParticipants.filter((p) => p.userId !== undefined)
+      const allFinished = others.length > 0 && others.every((p) => (p.swipesCount || 0) >= effectiveLimit)
+
+      return (
+        <div className="flex-1 w-full max-w-md mx-auto flex flex-col items-center justify-center p-5 text-center animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-red-500/20 text-amber-400 flex items-center justify-center mb-4 border border-amber-500/30 shadow-lg shadow-amber-500/10">
+            <Trophy className="w-8 h-8 animate-pulse text-amber-400" />
+          </div>
+          <h3 className="text-xl font-black text-white mb-1">Harika! {effectiveLimit} Filmi Oyladın</h3>
+          <p className="text-xs text-zinc-400 mb-4 max-w-xs leading-relaxed">
+            {allFinished
+              ? 'Tüm grup üyeleri oylamayı tamamladı! Zirve sonuçlarını görebilirsiniz.'
+              : 'Gruptaki diğer arkadaşların oylamayı bitirmesi bekleniyor...'}
+          </p>
+
+          {/* Group live scoreboard */}
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 w-full max-w-xs mb-4 flex flex-col gap-2.5 shadow-md">
+            <div className="flex items-center justify-between text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+              <span>Grup İlerlemesi</span>
+              <span className="text-amber-400 font-mono">Tur {roundNumber}</span>
+            </div>
+
+            {/* You */}
+            <div className="flex items-center justify-between p-2 rounded-xl bg-zinc-950/80 border border-emerald-500/40">
+              <div className="flex items-center gap-2">
+                <span className="text-xs">👑</span>
+                <span className="text-xs font-bold text-white">Sen</span>
+              </div>
+              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                {effectiveLimit} / {effectiveLimit} (Tamam)
+              </span>
+            </div>
+
+            {/* Other participants */}
+            {groupParticipants.map((p, idx) => (
+              <div
+                key={p.userId || idx}
+                className="flex items-center justify-between p-2 rounded-xl bg-zinc-950/40 border border-zinc-800/60"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs">{p.avatar || '🍿'}</span>
+                  <span className="text-xs font-bold text-zinc-200 truncate max-w-[120px]">
+                    {p.username || `Katılımcı #${idx + 1}`}
+                  </span>
+                </div>
+                <span
+                  className={`text-xs font-mono font-bold px-2 py-0.5 rounded-md ${
+                    (p.swipesCount || 0) >= effectiveLimit
+                      ? 'text-emerald-400 bg-emerald-500/10'
+                      : 'text-amber-400 bg-amber-500/10'
+                  }`}
+                >
+                  {(p.swipesCount || 0) >= effectiveLimit
+                    ? `${effectiveLimit} / ${effectiveLimit} (Tamam)`
+                    : `${p.swipesCount || 0} / ${effectiveLimit}`}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Group Results CTA Button */}
+          {onOpenGroupResults && (
+            <button
+              onClick={onOpenGroupResults}
+              className="w-full max-w-xs py-3.5 bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-black font-black text-xs uppercase tracking-wider rounded-2xl shadow-xl shadow-amber-500/25 transition-transform active:scale-98 cursor-pointer flex items-center justify-center gap-2 mb-2"
+            >
+              <Trophy className="w-4 h-4" />
+              <span>Grup Zirve Sonuçlarını Aç →</span>
+            </button>
+          )}
+
+          {/* Next Round Button */}
+          <button
+            onClick={() => {
+              setRoundIndex(0)
+              onLoadNextRound()
+            }}
+            disabled={isLoading}
+            className="w-full max-w-xs py-3 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white text-xs font-bold rounded-xl border border-zinc-800 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>Yeni Tura Geç (Tur {roundNumber + 1})</span>
+          </button>
+        </div>
+      )
+    }
 
     // If in room mode and partner hasn't finished all movies yet, show live waiting screen
     if (isRoomMode && partnerSwipesCount !== undefined && partnerSwipesCount < effectiveLimit) {
@@ -367,7 +502,14 @@ export function SwipeDeck({
         {hasRoundLimit ? (
           <>
             <div className="flex items-center justify-between text-xs font-semibold text-zinc-400 px-1">
-              <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 font-medium">Tur {roundNumber}</span>
+                {isRoomMode && roomMode === 'group' && (
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    🍿 Watch Party ({groupParticipants.length > 0 ? groupParticipants.length : 3} Kişi)
+                  </span>
+                )}
+              </div>
               <span className="text-white font-mono">{currentCount} / {effectiveLimit}</span>
             </div>
             <div className="w-full h-1.5 bg-zinc-800/80 rounded-full overflow-hidden">

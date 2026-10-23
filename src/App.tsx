@@ -9,9 +9,15 @@ import { OnboardingFlow } from './components/OnboardingFlow'
 import { FallbackModal } from './components/FallbackModal'
 import { MovieDetailModal } from './components/MovieDetailModal'
 import { BottomNav, type NavTab } from './components/BottomNav'
+import { PWAInstallBanner } from './components/PWAInstallBanner'
+import { RoomWaitingLobby } from './components/RoomWaitingLobby'
+import { GroupResultModal } from './components/GroupResultModal'
+import { AuthModal } from './components/AuthModal'
+import { hapticLike } from './utils/haptics'
 import {
   getOrCreateUserId,
   createRoom,
+  joinRoom,
   recordSwipe,
   subscribeToRoom,
   getRoomByCode,
@@ -19,9 +25,16 @@ import {
   saveRoomUserDeck,
   saveRoomParticipantTaste,
   fetchRoomUsedMovieIds,
+  getLegacyRoomDeck,
   advanceRoomRound,
   fetchRoomSwipesCount,
   fetchRoomVetoedMovieIds,
+  fetchPartnerGenreScores,
+  getCurrentAuthUser,
+  signOutUser,
+  syncProfileToCloud,
+  activateRoom,
+  updateParticipantPresence,
 } from './services/supabase'
 import {
   fetchFilteredMovies,
@@ -34,11 +47,14 @@ import {
 } from './services/tmdb'
 import {
   loadTasteProfile,
+  saveTasteProfile,
   updateTasteWithSwipe,
   getTopGenreIds,
+  addMatchedMovie,
   type TasteProfile,
 } from './services/tasteProfile'
-import type { Movie, Room, SwipeAction } from './types'
+import type { Movie, Room, SwipeAction, GroupParticipant, GroupVoteResult, RoomMode } from './types'
+import { calculateGroupVotingResults } from './services/groupVoting'
 
 const ROOM_DECK_SIZE = 25
 
@@ -94,14 +110,23 @@ async function fetchPersonalRoomDeck(
     }
   }
   for (let page = 1; page <= 5 && candidates.size < ROOM_DECK_SIZE * 2; page += 1) {
-    const batch = await fetchPopularMovies(page, filters.genreId)
+    const batch = await fetchFilteredMovies(page, { ...filters, genreId: filters.genreId })
     for (const movie of batch) if (!excluded.has(movie.id)) candidates.set(movie.id, movie)
     if (batch.length === 0) break
   }
 
+  // Ensure minimum candidates count with popular movies fallback
+  if (candidates.size < ROOM_DECK_SIZE) {
+    for (let page = 1; page <= 5 && candidates.size < ROOM_DECK_SIZE; page += 1) {
+      const batch = await fetchPopularMovies(page, filters.genreId)
+      for (const movie of batch) if (!excluded.has(movie.id)) candidates.set(movie.id, movie)
+      if (batch.length === 0) break
+    }
+  }
+
   const score = (movie: Movie) => {
     const taste = movie.genre_ids.reduce((sum, id) => sum + Math.max(0, profile.genreScores[id] ?? 0), 0)
-    return taste * 2 + movie.vote_average * 0.1 + Math.log1p(candidates.size)
+    return taste * 2 + movie.vote_average * 0.1
   }
   return Array.from(candidates.values()).sort((a, b) => score(b) - score(a)).slice(0, ROOM_DECK_SIZE)
 }
@@ -123,10 +148,19 @@ export function App() {
   const [cardDetailMovie, setCardDetailMovie] = useState<Movie | null>(null)
   const [isFallbackOpen, setIsFallbackOpen] = useState(false)
   const [partnerVetoNotice, setPartnerVetoNotice] = useState<string | null>(null)
+  const [partnerJoinedNotice, setPartnerJoinedNotice] = useState<string | null>(null)
+  const [isWaitingBypassed, setIsWaitingBypassed] = useState(false)
   const [roomSyncError, setRoomSyncError] = useState<string | null>(null)
   const [vetoedMovieIds, setVetoedMovieIds] = useState<Set<number>>(() => new Set())
   const [partnerSwipesCount, setPartnerSwipesCount] = useState(0)
   const [initialSwipeIndex, setInitialSwipeIndex] = useState(0)
+  const [partnerScores, setPartnerScores] = useState<Record<number, number> | undefined>(undefined)
+  const [authUser, setAuthUser] = useState<any>(null)
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false)
+  const [isCalibrationModalOpen, setIsCalibrationModalOpen] = useState(false)
+  const [groupParticipants, setGroupParticipants] = useState<GroupParticipant[]>([])
+  const [groupResults, setGroupResults] = useState<GroupVoteResult[] | null>(null)
+  const [isGroupResultsOpen, setIsGroupResultsOpen] = useState(false)
   const roundNumberRef = useRef(roundNumber)
   roundNumberRef.current = roundNumber
 
@@ -136,18 +170,90 @@ export function App() {
   const moviesRef = useRef(movies)
   moviesRef.current = movies
 
+  // Check Supabase Auth user on mount
+  useEffect(() => {
+    getCurrentAuthUser().then((user) => {
+      if (user) {
+        setAuthUser(user)
+        const cloudProfile = user.user_metadata?.taste_profile as TasteProfile | undefined
+        if (cloudProfile && cloudProfile.totalSwipes > tasteProfileRef.current.totalSwipes) {
+          setTasteProfile(cloudProfile)
+          saveTasteProfile(cloudProfile)
+        }
+      }
+    })
+  }, [])
+
+  const handleAuthSuccess = (user: any, restoredProfile?: TasteProfile) => {
+    setAuthUser(user)
+    if (restoredProfile) {
+      setTasteProfile(restoredProfile)
+      saveTasteProfile(restoredProfile)
+    } else {
+      void syncProfileToCloud(tasteProfileRef.current)
+    }
+  }
+
+  const handleSignOut = async () => {
+    await signOutUser()
+    setAuthUser(null)
+  }
+
+  // Auto-dismiss roomSyncError after 5 seconds
+  useEffect(() => {
+    if (!roomSyncError) return
+    const timer = setTimeout(() => setRoomSyncError(null), 5000)
+    return () => clearTimeout(timer)
+  }, [roomSyncError])
+
   const ensurePersonalRoomDeck = useCallback(async (roomId: string, targetRound: number) => {
-    const existingIds = await getRoomUserDeck(roomId, userId, targetRound)
-    if (existingIds?.length === ROOM_DECK_SIZE) return fetchRoomMovies(existingIds)
+    // 1. Check existing personal deck from room_user_decks (if table exists)
+    const existingIds = await getRoomUserDeck(roomId, userId, targetRound).catch(() => null)
+    if (existingIds && existingIds.length > 0) return fetchRoomMovies(existingIds)
+
+    // 2. Check legacy room_deck on match_rooms
+    const legacyDeck = await getLegacyRoomDeck(roomId, targetRound).catch(() => null)
+    const progress = await fetchRoomSwipesCount(roomId, userId, targetRound).catch(() => ({ myCount: 0, partnerCount: 0 }))
+    if (progress.myCount > 0 && legacyDeck && legacyDeck.length > 0) {
+      return fetchRoomMovies(legacyDeck)
+    }
+
     const profile = tasteProfileRef.current
     await saveRoomParticipantTaste(roomId, userId, profile.genreScores, Array.from(new Set([
       ...(profile.watchedMovieIds ?? []), ...(profile.watchedMovies ?? []).map((entry) => entry.movie.id),
-    ])))
-    const previouslySeen = await fetchRoomUsedMovieIds(roomId, userId)
+    ]))).catch(() => {})
+
+    // If partner already created a shared deck and room_user_decks is not enabled, adopt shared deck
+    if (legacyDeck && legacyDeck.length >= 20) {
+      return fetchRoomMovies(legacyDeck)
+    }
+
+    const previouslySeen = await fetchRoomUsedMovieIds(roomId, userId).catch(() => [])
     const deck = await fetchPersonalRoomDeck(profile, filters, previouslySeen)
-    if (deck.length !== ROOM_DECK_SIZE) throw new Error(`Kişisel desten için ${ROOM_DECK_SIZE} izlenmemiş film bulunamadı; şu an ${deck.length} aday var.`)
-    const canonicalIds = await saveRoomUserDeck(roomId, userId, targetRound, deck.map((movie) => movie.id))
-    const byId = new Map(deck.map((movie) => [movie.id, movie]))
+
+    // Pad to 25 movies if needed
+    const finalDeck = [...deck]
+    if (finalDeck.length < ROOM_DECK_SIZE) {
+      let padPage = 1
+      const existingDeckIds = new Set(finalDeck.map((m) => m.id))
+      while (finalDeck.length < ROOM_DECK_SIZE && padPage <= 5) {
+        const padBatch = await fetchPopularMovies(padPage, filters.genreId)
+        if (!padBatch || padBatch.length === 0) break
+        for (const movie of padBatch) {
+          if (!existingDeckIds.has(movie.id)) {
+            existingDeckIds.add(movie.id)
+            finalDeck.push(movie)
+            if (finalDeck.length >= ROOM_DECK_SIZE) break
+          }
+        }
+        padPage++
+      }
+    }
+
+    const movieIds = finalDeck.slice(0, ROOM_DECK_SIZE).map((m) => m.id)
+    const canonicalIds = await saveRoomUserDeck(roomId, userId, targetRound, movieIds).catch(() => movieIds)
+
+    const byId = new Map(finalDeck.map((movie) => [movie.id, movie]))
     const missing = await fetchRoomMovies(canonicalIds.filter((id) => !byId.has(id)))
     const missingById = new Map(missing.map((movie) => [movie.id, movie]))
     return canonicalIds.map((id) => byId.get(id) ?? missingById.get(id) ?? roomMoviePlaceholder(id))
@@ -297,6 +403,22 @@ export function App() {
       })
       .catch((error) => console.error('Failed to load round vetoes:', error))
 
+    const cachedScores = sessionStorage.getItem('neizlesek_partner_scores_' + room.id)
+    if (cachedScores) {
+      try {
+        setPartnerScores(JSON.parse(cachedScores))
+      } catch {}
+    }
+
+    fetchPartnerGenreScores(room.id, userId)
+      .then((scores) => {
+        if (isCurrentSubscription && scores) {
+          setPartnerScores(scores)
+          sessionStorage.setItem('neizlesek_partner_scores_' + room.id, JSON.stringify(scores))
+        }
+      })
+      .catch(() => {})
+
     const unsubscribe = subscribeToRoom(
       room.id,
       roundNumber,
@@ -311,7 +433,10 @@ export function App() {
           // Keep the canonical 25-card deck intact. SwipeDeck records a neutral
           // pass when this slot reaches the front of the local deck.
           setVetoedMovieIds((prev) => new Set(prev).add(vetoedMovieId))
-          setPartnerVetoNotice('Partnerin bir filmi veto etti! 🚫')
+          const vetoerName =
+            groupParticipants.find((p) => p.userId === vetoUserId)?.username ||
+            (room.room_mode === 'group' ? 'Grup üyesi' : 'Partnerin')
+          setPartnerVetoNotice(`${vetoerName} bir filmi veto etti! 🚫`)
           setTimeout(() => setPartnerVetoNotice(null), 3000)
         }
       },
@@ -329,6 +454,7 @@ export function App() {
         setVetoedMovieIds(new Set())
         setRoomSyncError(null)
         setRoom({ ...room, round_number: incomingRound })
+        setIsGroupResultsOpen(false)
         setIsLoading(true)
         try {
           const details = await ensurePersonalRoomDeck(room.id, incomingRound)
@@ -338,6 +464,41 @@ export function App() {
         } finally {
           if (roundNumberRef.current === incomingRound) setIsLoading(false)
         }
+      },
+      (partnerName) => {
+        if (!isCurrentSubscription) return
+        setRoom((prev) => {
+          if (!prev) return null
+          hapticLike()
+          setPartnerJoinedNotice(`${partnerName} odaya katıldı! 🎉`)
+          setTimeout(() => setPartnerJoinedNotice(null), 4000)
+          return {
+            ...prev,
+            status: prev.room_mode === 'group' ? prev.status : 'active',
+            partner_name: partnerName,
+          }
+        })
+      },
+      Boolean(room.partner_name),
+      (scores) => {
+        if (!isCurrentSubscription) return
+        setPartnerScores(scores)
+        sessionStorage.setItem('neizlesek_partner_scores_' + room.id, JSON.stringify(scores))
+      },
+      tasteProfile.genreScores,
+      {
+        myParticipantInfo: {
+          username: tasteProfile.username || 'Katılımcı',
+          avatar: tasteProfile.avatar || '🍿',
+        },
+        onParticipantsChanged: (participants) => {
+          if (!isCurrentSubscription) return
+          setGroupParticipants(participants)
+        },
+        onRoomActivated: () => {
+          if (!isCurrentSubscription) return
+          setRoom((prev) => (prev ? { ...prev, status: 'active' } : null))
+        },
       }
     )
 
@@ -345,38 +506,89 @@ export function App() {
       isCurrentSubscription = false
       unsubscribe()
     }
-  }, [room?.id, userId, roundNumber, ensurePersonalRoomDeck])
+  }, [room?.id, userId, roundNumber, ensurePersonalRoomDeck, tasteProfile.username, tasteProfile.avatar, groupParticipants])
 
-  // Create the room shell; each participant will prepare a separate personal deck.
-  const handleCreateRoomAction = async (): Promise<Room> => {
-    return createRoom()
+  // Create the room shell; supports pair or group watch party mode
+  const handleCreateRoomAction = async (mode: RoomMode = 'pair'): Promise<Room> => {
+    const newRoom = await createRoom(
+      tasteProfile.username || 'Kurucu',
+      undefined,
+      mode,
+      mode === 'group' ? 5 : 2
+    )
+    sessionStorage.setItem('neizlesek_created_room_code', newRoom.room_code)
+    setIsWaitingBypassed(false)
+    return newRoom
   }
 
-  const handleRoomCreatedOrJoined = async (newRoom: Room) => {
-    setRoom(newRoom)
+  // Creator can manually activate group session when members are ready
+  const handleStartGroupRoom = async () => {
+    if (!room) return
+    try {
+      await activateRoom(room.id)
+      setRoom((prev) => (prev ? { ...prev, status: 'active' } : null))
+    } catch (err) {
+      console.warn('Could not activate group room:', err)
+    }
+  }
+
+  // Calculate and display group podium voting results
+  const handleOpenGroupResults = async () => {
+    if (!room) return
+    try {
+      setIsLoading(true)
+      const results = await calculateGroupVotingResults(
+        room.id,
+        roundNumber,
+        movies,
+        Math.max(groupParticipants.length, 2)
+      )
+      setGroupResults(results)
+      setIsGroupResultsOpen(true)
+    } catch (err) {
+      console.error('Failed to calculate group results:', err)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleRoomCreatedOrJoined = async (newRoom: Room, isExplicitCreator?: boolean) => {
+    const createdCode = sessionStorage.getItem('neizlesek_created_room_code')
+    const isCreator = isExplicitCreator !== undefined ? isExplicitCreator : createdCode === newRoom.room_code
+
+    let activeRoom = newRoom
+    // If not creator and room is waiting for partner, join and activate it
+    if (!isCreator && (newRoom.status === 'waiting' || !newRoom.partner_name)) {
+      try {
+        activeRoom = await joinRoom(newRoom.id, tasteProfile.username || (newRoom.room_mode === 'group' ? 'Misafir' : 'Partner'))
+      } catch (err) {
+        console.warn('Could not activate room on partner join:', err)
+      }
+    }
+
+    setRoom(activeRoom)
     setInitialSwipeIndex(0)
     setVetoedMovieIds(new Set())
     setRoomSyncError(null)
-    sessionStorage.setItem('neizlesek_active_room_code', newRoom.room_code)
-    const newUrl = `${window.location.pathname}?room=${newRoom.room_code}`
+    sessionStorage.setItem('neizlesek_active_room_code', activeRoom.room_code)
+    const newUrl = `${window.location.pathname}?room=${activeRoom.room_code}`
     window.history.replaceState({}, '', newUrl)
 
-    const initialRound = newRoom.round_number ?? 1
+    const initialRound = activeRoom.round_number ?? 1
     roundNumberRef.current = initialRound
     setRoundNumber(initialRound)
 
     // Check existing progress in this room round
-    fetchRoomSwipesCount(newRoom.id, userId, initialRound).then(({ myCount, partnerCount }) => {
+    fetchRoomSwipesCount(activeRoom.id, userId, initialRound).then(({ myCount, partnerCount }) => {
       setInitialSwipeIndex(myCount)
       setPartnerSwipesCount(partnerCount)
     }).catch((error) => {
-      setRoomSyncError('Oda ilerlemesi alınamadı. Bağlantıyı kontrol edip yeniden yükleyin.')
-      console.error('Failed to load joined room progress:', error)
+      console.warn('Failed to load joined room progress:', error)
     })
 
     setIsLoading(true)
     try {
-      setMovies(await ensurePersonalRoomDeck(newRoom.id, initialRound))
+      setMovies(await ensurePersonalRoomDeck(activeRoom.id, initialRound))
     } catch (err) {
       setRoomSyncError(err instanceof Error ? err.message : 'Kişisel film listen hazırlanamadı.')
       console.error('Error creating personal room deck:', err)
@@ -387,6 +599,10 @@ export function App() {
 
   const handleLeaveRoom = () => {
     sessionStorage.removeItem('neizlesek_active_room_code')
+    sessionStorage.removeItem('neizlesek_created_room_code')
+    setIsWaitingBypassed(false)
+    setPartnerJoinedNotice(null)
+    setPartnerScores(undefined)
     setRoom(null)
     setVetoedMovieIds(new Set())
     setRoomSyncError(null)
@@ -404,6 +620,15 @@ export function App() {
       try {
         await recordSwipe(room.id, userId, movie.id, action, roundNumber)
         setRoomSyncError(null)
+        if (room.room_mode === 'group') {
+          void updateParticipantPresence(
+            room.id,
+            userId,
+            tasteProfile.username || 'Katılımcı',
+            tasteProfile.avatar || '🍿',
+            initialSwipeIndex + 1
+          )
+        }
       } catch (err) {
         console.error('Swipe record error:', err)
         setRoomSyncError('Seçimin kaydedilemedi. Kartı tekrar kaydırmayı dene; ilerlemen kaybolmadı.')
@@ -414,13 +639,16 @@ export function App() {
     // Learn only after the room accepted the swipe, so retries do not double-count taste.
     const updated = updateTasteWithSwipe(tasteProfile, movie, action)
     setTasteProfile(updated)
+    if (authUser) {
+      void syncProfileToCloud(updated)
+    }
     return true
   }
 
   const handleLoadNextRound = async () => {
     const nextPage = page + 1
     if (room) {
-      // In room mode: curate next 25-film round and sync room_deck
+      // Prepare this user's next 25-film deck, then advance the shared room round.
       setIsLoading(true)
       try {
         const personalDeck = await ensurePersonalRoomDeck(room.id, roundNumber + 1)
@@ -477,6 +705,9 @@ export function App() {
         />
       )}
 
+      {/* PWA Mobile Install Prompt */}
+      <PWAInstallBanner />
+
       {/* App Header */}
       <Header
         roomCode={room ? room.room_code : null}
@@ -486,6 +717,14 @@ export function App() {
         activeFilterCount={activeFilterCount}
       />
 
+      {/* Partner Joined Toast Notification */}
+      {partnerJoinedNotice && (
+        <div className="absolute top-16 inset-x-4 z-40 bg-emerald-950/90 border border-emerald-500/50 text-emerald-200 py-2.5 px-4 rounded-2xl text-xs font-bold text-center shadow-xl shadow-emerald-950/50 backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-200 flex items-center justify-center gap-2">
+          <span>🎉</span>
+          <span>{partnerJoinedNotice}</span>
+        </div>
+      )}
+
       {/* Partner Veto Toast Notification */}
       {partnerVetoNotice && (
         <div className="absolute top-16 inset-x-4 z-40 bg-red-950/90 border border-red-500/50 text-red-200 py-2.5 px-4 rounded-2xl text-xs font-bold text-center shadow-xl shadow-red-950/50 backdrop-blur-md animate-in fade-in slide-in-from-top-4 duration-200 flex items-center justify-center gap-2">
@@ -494,8 +733,16 @@ export function App() {
         </div>
       )}
       {roomSyncError && (
-        <div role="alert" className="absolute top-28 inset-x-4 z-40 bg-amber-950/95 border border-amber-500/50 text-amber-100 py-2.5 px-4 rounded-2xl text-xs font-bold text-center shadow-xl backdrop-blur-md">
-          {roomSyncError}
+        <div role="alert" className="absolute top-28 inset-x-4 z-40 bg-amber-950/95 border border-amber-500/50 text-amber-100 py-2.5 px-4 rounded-2xl text-xs font-bold shadow-xl backdrop-blur-md flex items-center justify-between gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
+          <span className="flex-1 text-center">{roomSyncError}</span>
+          <button
+            type="button"
+            onClick={() => setRoomSyncError(null)}
+            className="text-amber-400 hover:text-white p-1 rounded-md text-xs font-bold cursor-pointer shrink-0"
+            title="Kapat"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -505,25 +752,40 @@ export function App() {
 
         {activeTab === 'match' && (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* Swipe Deck with infinite solo mode or 25-film room limit */}
-            <SwipeDeck
-              key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
-              movies={movies}
-              onSwipe={handleSwipe}
-              onLoadNextRound={handleLoadNextRound}
-              onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
-              isLoading={isLoading}
-              roundNumber={roundNumber}
-              roundLimit={25}
-              hasRoundLimit={!!room}
-              isRoomMode={!!room}
-              totalSwipesCount={tasteProfile.totalSwipes}
-              onOpenDetails={setCardDetailMovie}
-              onOpenFallback={room ? () => setIsFallbackOpen(true) : undefined}
-              partnerSwipesCount={partnerSwipesCount}
-              initialIndex={initialSwipeIndex}
-              vetoedMovieIds={vetoedMovieIds}
-            />
+            {room && room.status === 'waiting' && !isWaitingBypassed ? (
+              <RoomWaitingLobby
+                room={room}
+                creatorName={tasteProfile.username || 'Kurucu'}
+                isCreator={Boolean(sessionStorage.getItem('neizlesek_created_room_code') === room.room_code)}
+                participants={groupParticipants}
+                onStartRoom={handleStartGroupRoom}
+                onStartSolo={() => setIsWaitingBypassed(true)}
+                onLeaveRoom={handleLeaveRoom}
+              />
+            ) : (
+              /* Swipe Deck with infinite solo mode or 25-film room limit */
+              <SwipeDeck
+                key={`${roundNumber}_${filters.genreId}_${filters.platformIds.join(',')}_${filters.yearRange}_${filters.minRating}_${room?.id || 'solo'}`}
+                movies={movies}
+                onSwipe={handleSwipe}
+                onLoadNextRound={handleLoadNextRound}
+                onResetGenre={() => handleApplyFilters(DEFAULT_FILTERS)}
+                isLoading={isLoading}
+                roundNumber={roundNumber}
+                roundLimit={25}
+                hasRoundLimit={!!room}
+                isRoomMode={!!room}
+                roomMode={room?.room_mode}
+                groupParticipants={groupParticipants}
+                totalSwipesCount={tasteProfile.totalSwipes}
+                onOpenDetails={setCardDetailMovie}
+                onOpenFallback={room && room.room_mode !== 'group' ? () => setIsFallbackOpen(true) : undefined}
+                onOpenGroupResults={room && room.room_mode === 'group' ? handleOpenGroupResults : undefined}
+                partnerSwipesCount={partnerSwipesCount}
+                initialIndex={initialSwipeIndex}
+                vetoedMovieIds={vetoedMovieIds}
+              />
+            )}
           </div>
         )}
 
@@ -531,11 +793,19 @@ export function App() {
           <UserProfile
             tasteProfile={tasteProfile}
             activeRoom={room}
+            partnerScores={partnerScores}
+            authUser={authUser}
             onCreateRoom={handleCreateRoomAction}
             onRoomCreatedOrJoined={handleRoomCreatedOrJoined}
             onLeaveRoom={handleLeaveRoom}
             onNavigateToMatch={() => setActiveTab('match')}
-            onUpdateTasteProfile={setTasteProfile}
+            onUpdateTasteProfile={(updated) => {
+              setTasteProfile(updated)
+              if (authUser) void syncProfileToCloud(updated)
+            }}
+            onStartCalibration={() => setIsCalibrationModalOpen(true)}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onSignOut={handleSignOut}
           />
         )}
       </main>
@@ -566,7 +836,7 @@ export function App() {
       />
 
       {/* Fallback Voting Modal (When no match after round) */}
-      {room && (
+      {room && room.room_mode !== 'group' && (
         <FallbackModal
           roomId={room.id}
           roundNumber={roundNumber}
@@ -577,6 +847,49 @@ export function App() {
             setMatchedMovie(movie)
             setIsMatchOpen(true)
             setIsFallbackOpen(false)
+            if (room) {
+              const updated = addMatchedMovie(
+                tasteProfileRef.current,
+                movie,
+                room.room_code,
+                room.partner_name || 'Partner'
+              )
+              setTasteProfile(updated)
+            }
+          }}
+        />
+      )}
+
+      {/* Group Watch Party Voting Results & Podium Modal */}
+      {room && room.room_mode === 'group' && (
+        <GroupResultModal
+          isOpen={isGroupResultsOpen}
+          onClose={() => setIsGroupResultsOpen(false)}
+          results={groupResults || []}
+          vetoedMovies={movies.filter((m) => vetoedMovieIds.has(m.id))}
+          totalParticipants={Math.max(groupParticipants.length, 2)}
+          roundNumber={roundNumber}
+          onNextRound={() => {
+            setIsGroupResultsOpen(false)
+            void handleLoadNextRound()
+          }}
+          onLeaveRoom={() => {
+            setIsGroupResultsOpen(false)
+            handleLeaveRoom()
+          }}
+          onSelectMovie={(movie) => {
+            setMatchedMovie(movie)
+            setIsMatchOpen(true)
+            setIsGroupResultsOpen(false)
+            if (room) {
+              const updated = addMatchedMovie(
+                tasteProfileRef.current,
+                movie,
+                room.room_code,
+                'Watch Party Grubu'
+              )
+              setTasteProfile(updated)
+            }
           }}
         />
       )}
@@ -587,6 +900,28 @@ export function App() {
         isOpen={isMatchOpen}
         onClose={() => setIsMatchOpen(false)}
       />
+
+      {/* Cloud Account & Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentProfile={tasteProfile}
+        onAuthSuccess={handleAuthSuccess}
+      />
+
+      {/* Reopenable 30 Movie Calibration Modal */}
+      {isCalibrationModalOpen && (
+        <OnboardingFlow
+          initialProfile={tasteProfile}
+          startAtColdStart={true}
+          onClose={() => setIsCalibrationModalOpen(false)}
+          onComplete={(completedProfile) => {
+            setTasteProfile(completedProfile)
+            setIsCalibrationModalOpen(false)
+            if (authUser) void syncProfileToCloud(completedProfile)
+          }}
+        />
+      )}
     </div>
   )
 }

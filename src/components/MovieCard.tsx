@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Star, Info, Calendar, Film } from 'lucide-react'
 import type { Movie } from '../types'
-import { IMAGE_BASE_URL, BACKDROP_BASE_URL, LOGO_BASE_URL } from '../services/tmdb'
+import { getMovieImageCandidates, LOGO_BASE_URL } from '../services/tmdb'
 
 interface MovieCardProps {
   movie: Movie
@@ -19,35 +19,55 @@ export function MovieCard({
   onOpenDetails,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
-  const [imgSrc, setImgSrc] = useState<string>(() => {
-    if (movie.poster_path) return `${IMAGE_BASE_URL}${movie.poster_path}`
-    if (movie.backdrop_path) return `${BACKDROP_BASE_URL}${movie.backdrop_path}`
-    return ''
-  })
+  const candidates = useMemo(
+    () => getMovieImageCandidates(movie),
+    [movie.id, movie.poster_path, movie.backdrop_path]
+  )
+  const [candidateIndex, setCandidateIndex] = useState(0)
   const [isLoaded, setIsLoaded] = useState(false)
   const [hasError, setHasError] = useState(false)
+  const imgRef = useRef<HTMLImageElement | null>(null)
 
-  // Reset and update image source whenever movie changes
+  // Reset candidate index and loading states when movie changes
   useEffect(() => {
+    setCandidateIndex(0)
     setIsLoaded(false)
-    setHasError(false)
-    if (movie.poster_path) {
-      setImgSrc(`${IMAGE_BASE_URL}${movie.poster_path}`)
-    } else if (movie.backdrop_path) {
-      setImgSrc(`${BACKDROP_BASE_URL}${movie.backdrop_path}`)
-    } else {
-      setHasError(true)
-    }
-  }, [movie.id, movie.poster_path, movie.backdrop_path])
+    setHasError(candidates.length === 0)
+  }, [movie.id, candidates.length])
 
-  const handleImageError = () => {
-    // If primary poster failed, try backdrop image as fallback
-    if (movie.backdrop_path && imgSrc !== `${BACKDROP_BASE_URL}${movie.backdrop_path}`) {
-      setImgSrc(`${BACKDROP_BASE_URL}${movie.backdrop_path}`)
+  const currentSrc = candidates[candidateIndex] || ''
+
+  // Fallback handler: advance to next candidate in cascade (e.g. w500 -> w780 -> w342 -> original -> backdrop)
+  const handleImageError = useCallback(() => {
+    if (candidateIndex + 1 < candidates.length) {
+      setCandidateIndex((prev) => prev + 1)
+      setIsLoaded(false)
     } else {
       setHasError(true)
     }
-  }
+  }, [candidateIndex, candidates.length])
+
+  const handleImageLoad = useCallback(() => {
+    setIsLoaded(true)
+    setHasError(false)
+  }, [])
+
+  // Ref callback to detect preloaded or browser-cached images synchronously on mount/update
+  const imageRefCallback = useCallback((node: HTMLImageElement | null) => {
+    imgRef.current = node
+    if (node && node.complete && node.naturalWidth > 0) {
+      setIsLoaded(true)
+      setHasError(false)
+    }
+  }, [])
+
+  // Additional check when currentSrc changes
+  useEffect(() => {
+    if (imgRef.current && imgRef.current.complete && imgRef.current.naturalWidth > 0) {
+      setIsLoaded(true)
+      setHasError(false)
+    }
+  }, [currentSrc])
 
   // Compute rotation and translation if it's the top card being dragged
   const rotation = isTopCard ? (dragOffset.x / 15) : 0
@@ -78,7 +98,7 @@ export function MovieCard({
       }`}
     >
       {/* Background Poster Image / Skeleton / Fallback */}
-      {!hasError && imgSrc ? (
+      {!hasError && currentSrc ? (
         <>
           {/* Skeleton Shimmer while loading */}
           {!isLoaded && (
@@ -88,12 +108,15 @@ export function MovieCard({
           )}
 
           <img
-            src={imgSrc}
+            ref={imageRefCallback}
+            key={currentSrc}
+            src={currentSrc}
             alt={movie.title}
             draggable={false}
-            loading={isTopCard ? 'eager' : 'lazy'}
+            loading="eager"
             fetchPriority={isTopCard ? 'high' : 'auto'}
-            onLoad={() => setIsLoaded(true)}
+            decoding="async"
+            onLoad={handleImageLoad}
             onError={handleImageError}
             className={`absolute inset-0 w-full h-full object-cover select-none pointer-events-none transition-opacity duration-300 ${
               isLoaded ? 'opacity-100' : 'opacity-0'
@@ -115,7 +138,7 @@ export function MovieCard({
             </span>
           )}
           <span className="text-[11px] text-zinc-500 font-medium px-3 py-1 bg-zinc-900/80 rounded-full border border-zinc-800">
-            Afiş Bağlantısı Bekleniyor
+            Afiş Görseli Bulunamadı
           </span>
         </div>
       )}
@@ -150,6 +173,25 @@ export function MovieCard({
           className="absolute top-10 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-sm pointer-events-none text-center animate-pulse z-30"
         >
           🚫 VETO
+        </div>
+      )}
+
+      {/* Sponsored / Now-Playing Spotlight Badge (Top Left) */}
+      {movie.isSponsored && (
+        <div className="absolute top-4 left-4 z-10 flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/90 via-orange-500/90 to-red-600/90 text-white font-black text-[11px] shadow-lg border border-amber-300/40 backdrop-blur-md uppercase tracking-wider">
+          <span>{movie.sponsorLabel || 'Vizyonda 🍿'}</span>
+          {movie.sponsorCtaUrl && (
+            <a
+              href={movie.sponsorCtaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="ml-1 px-1.5 py-0.5 rounded bg-black/40 text-amber-200 text-[10px] hover:bg-black/60 transition-colors cursor-pointer"
+              title="Bilet Al / Bağlantıyı Aç"
+            >
+              ↗
+            </a>
+          )}
         </div>
       )}
 

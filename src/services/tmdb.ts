@@ -219,6 +219,32 @@ export async function fetchMovieProviders(movieId: number): Promise<StreamingPro
   }
 }
 
+export function getMovieImageCandidates(movie: Movie, preferBackdrop = false): string[] {
+  const candidates: string[] = []
+  const poster = movie.poster_path
+  const backdrop = movie.backdrop_path
+
+  if (preferBackdrop && backdrop) {
+    candidates.push(`${BACKDROP_BASE_URL}${backdrop}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/w780${backdrop}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/original${backdrop}`)
+  }
+
+  if (poster) {
+    candidates.push(`${IMAGE_BASE_URL}${poster}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/w780${poster}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/w342${poster}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/original${poster}`)
+  }
+
+  if (!preferBackdrop && backdrop) {
+    candidates.push(`${BACKDROP_BASE_URL}${backdrop}`)
+    candidates.push(`${TMDB_IMAGE_BASE_URL}/w780${backdrop}`)
+  }
+
+  return candidates
+}
+
 export function formatRuntime(minutes?: number): string {
   if (!minutes || minutes <= 0) return ''
   const hours = Math.floor(minutes / 60)
@@ -301,6 +327,8 @@ export async function fetchNowPlayingMovies(): Promise<Movie[]> {
         vote_average: Math.round(m.vote_average * 10) / 10,
         release_date: m.release_date || '',
         genre_ids: m.genre_ids || [],
+        isSponsored: true,
+        sponsorLabel: 'Vizyonda 🍿',
       }))
   } catch (err) {
     console.error('Failed to fetch now playing movies:', err)

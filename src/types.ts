@@ -19,6 +19,9 @@ export interface Movie {
   trailerKey?: string // YouTube video ID
   director?: string
   cast?: string[]
+  isSponsored?: boolean
+  sponsorLabel?: string
+  sponsorCtaUrl?: string
 }
 
 export type SwipeAction = 'pass' | 'like' | 'superlike' | 'watched' | 'veto'
@@ -29,13 +32,44 @@ export interface WatchedMovieEntry {
   watchedAt: string // ISO timestamp
 }
 
+export interface MatchedMovieEntry {
+  movie: Movie
+  matchedAt: string // ISO timestamp
+  roomCode?: string
+  partnerName?: string
+  myRating?: number
+  partnerRating?: number
+}
+
+export type RoomMode = 'pair' | 'group'
+
+export interface GroupParticipant {
+  userId: string
+  username: string
+  avatar?: string
+  isReady?: boolean
+  swipesCount?: number
+}
+
+export interface GroupVoteResult {
+  movie: Movie
+  votesCount: number
+  voterNames: string[]
+  isVetoed: boolean
+  percentage: number
+}
+
 export interface Room {
   id: string
   room_code: string
   status: 'waiting' | 'active' | 'matched'
+  creator_name?: string | null
+  partner_name?: string | null
   matched_movie_id: number | null
   room_deck?: number[]
   round_number?: number
+  room_mode?: RoomMode
+  max_participants?: number
   created_at: string
   updated_at?: string
 }

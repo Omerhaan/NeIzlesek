@@ -1,4 +1,5 @@
 import { Clapperboard, Film, User } from 'lucide-react'
+import { hapticLight } from '../utils/haptics'
 
 export type NavTab = 'news' | 'match' | 'profile'
 
@@ -9,11 +10,18 @@ interface BottomNavProps {
 }
 
 export function BottomNav({ activeTab, onTabChange, hasActiveRoom }: BottomNavProps) {
+  const handleTab = (tab: NavTab) => {
+    if (tab !== activeTab) {
+      hapticLight()
+    }
+    onTabChange(tab)
+  }
+
   return (
     <nav className="w-full max-w-md mx-auto px-6 py-2 bg-zinc-950/95 backdrop-blur-lg border-t border-zinc-800/80 flex items-center justify-between z-40 select-none pb-safe">
       {/* Sol Sekme: Haberler */}
       <button
-        onClick={() => onTabChange('news')}
+        onClick={() => handleTab('news')}
         className={`flex flex-col items-center gap-1 transition-colors cursor-pointer py-1 px-3 ${
           activeTab === 'news' ? 'text-red-500' : 'text-zinc-500 hover:text-zinc-300'
         }`}
@@ -24,7 +32,7 @@ export function BottomNav({ activeTab, onTabChange, hasActiveRoom }: BottomNavPr
 
       {/* Orta Sekme: Neİzlesek (Öne çıkan eşleşme kartları) */}
       <button
-        onClick={() => onTabChange('match')}
+        onClick={() => handleTab('match')}
         className="relative -top-2 flex flex-col items-center transition-transform active:scale-95 cursor-pointer"
       >
         <div
@@ -47,7 +55,7 @@ export function BottomNav({ activeTab, onTabChange, hasActiveRoom }: BottomNavPr
 
       {/* Sağ Sekme: Hesabım / Oda */}
       <button
-        onClick={() => onTabChange('profile')}
+        onClick={() => handleTab('profile')}
         className={`relative flex flex-col items-center gap-1 transition-colors cursor-pointer py-1 px-3 ${
           activeTab === 'profile' ? 'text-red-500' : 'text-zinc-500 hover:text-zinc-300'
         }`}

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Film } from 'lucide-react'
 import type { Movie } from '../types'
-import { TMDB_IMAGE_BASE_URL } from '../services/tmdb'
+import { getMovieImageCandidates } from '../services/tmdb'
 
 interface MovieArtworkProps {
   movie: Movie
@@ -18,25 +18,17 @@ export function MovieArtwork({
   alt,
   loading = 'lazy',
 }: MovieArtworkProps) {
-  const sources = useMemo(() => {
-    const posterSizes = ['w500', 'w342', 'w185', 'original']
-    const backdropSizes = ['w1280', 'w780', 'w500', 'original']
-    const posterSources = movie.poster_path
-      ? posterSizes.map((size) => `${TMDB_IMAGE_BASE_URL}/${size}${movie.poster_path}`)
-      : []
-    const backdropSources = movie.backdrop_path
-      ? backdropSizes.map((size) => `${TMDB_IMAGE_BASE_URL}/${size}${movie.backdrop_path}`)
-      : []
-    const orderedSources = preferBackdrop
-      ? [...backdropSources, ...posterSources]
-      : [...posterSources, ...backdropSources]
-    return [...new Set(orderedSources)]
-  }, [movie.poster_path, movie.backdrop_path, preferBackdrop])
+  const sources = useMemo(
+    () => getMovieImageCandidates(movie, preferBackdrop),
+    [movie.id, movie.poster_path, movie.backdrop_path, preferBackdrop]
+  )
   const [sourceIndex, setSourceIndex] = useState(0)
 
-  useEffect(() => setSourceIndex(0), [movie.id, sources])
+  useEffect(() => {
+    setSourceIndex(0)
+  }, [movie.id, sources])
 
-  if (sourceIndex >= sources.length) {
+  if (sourceIndex >= sources.length || sources.length === 0) {
     return (
       <div
         role="img"
@@ -48,9 +40,12 @@ export function MovieArtwork({
     )
   }
 
+  const currentSrc = sources[sourceIndex]
+
   return (
     <img
-      src={sources[sourceIndex]}
+      key={currentSrc}
+      src={currentSrc}
       alt={alt ?? movie.title}
       className={className}
       loading={loading}

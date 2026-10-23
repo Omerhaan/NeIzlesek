@@ -21,6 +21,13 @@ ALTER TABLE public.room_swipes
 ALTER TABLE public.room_swipes
   ADD CONSTRAINT unique_room_user_movie UNIQUE (room_id, user_name, movie_id, round_number);
 
+-- İstemciden gelen ek eylemleri (watched, superlike) veri tabanı seviyesinde kabul et
+ALTER TABLE public.room_swipes
+  DROP CONSTRAINT IF EXISTS room_swipes_action_check;
+
+ALTER TABLE public.room_swipes
+  ADD CONSTRAINT room_swipes_action_check CHECK (action IN ('like', 'pass', 'veto', 'watched', 'superlike'));
+
 -- 2. Race-Condition ve Çift Eşleşme Önleyici Trigger (trg_check_match)
 -- İki kullanıcı aynı anda 'like' atsa bile sadece tek bir eşleşme oluşur (status != 'matched' kontrolü ile).
 CREATE OR REPLACE FUNCTION public.check_room_match()
@@ -94,7 +101,6 @@ BEGIN
 
   UPDATE public.match_rooms AS mr
   SET room_deck = p_movie_ids,
-      status = 'active',
       updated_at = NOW()
   WHERE mr.id = p_room_id
     AND (mr.room_deck IS NULL OR cardinality(mr.room_deck) = 0);

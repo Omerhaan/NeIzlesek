@@ -21,11 +21,20 @@ import { SwipeDeck } from './SwipeDeck'
 
 interface OnboardingFlowProps {
   initialProfile: TasteProfile
+  startAtColdStart?: boolean
+  onClose?: () => void
   onComplete: (completedProfile: TasteProfile) => void
 }
 
-export function OnboardingFlow({ initialProfile, onComplete }: OnboardingFlowProps) {
-  const [step, setStep] = useState<'profile' | 'tutorial' | 'coldstart' | 'result'>('profile')
+export function OnboardingFlow({
+  initialProfile,
+  startAtColdStart = false,
+  onClose,
+  onComplete,
+}: OnboardingFlowProps) {
+  const [step, setStep] = useState<'profile' | 'tutorial' | 'coldstart' | 'result'>(
+    startAtColdStart ? 'coldstart' : 'profile'
+  )
   const [profile, setProfile] = useState<TasteProfile>(initialProfile)
   const [usernameInput, setUsernameInput] = useState(initialProfile.username || '')
   const [selectedAvatar, setSelectedAvatar] = useState(initialProfile.avatar || '🍿')
@@ -50,11 +59,24 @@ export function OnboardingFlow({ initialProfile, onComplete }: OnboardingFlowPro
     setProfile(updated)
   }
 
+  // Skip cold start test (Optional calibration)
+  const handleSkipColdStart = () => {
+    const skipped: TasteProfile = {
+      ...profile,
+      isOnboarded: true,
+      coldStartCompleted: false,
+    }
+    setProfile(skipped)
+    saveTasteProfile(skipped)
+    onComplete(skipped)
+  }
+
   // When all 30 movies are swiped
   const handleColdStartFinished = () => {
     const finalized: TasteProfile = {
       ...profile,
       isOnboarded: true,
+      coldStartCompleted: true,
     }
     setProfile(finalized)
     saveTasteProfile(finalized)
@@ -188,19 +210,48 @@ export function OnboardingFlow({ initialProfile, onComplete }: OnboardingFlowPro
             <span>30 Film Testine Başla</span>
             <ArrowRight className="w-4 h-4" />
           </button>
+
+          <button
+            type="button"
+            onClick={handleSkipColdStart}
+            className="w-full mt-3 py-2 text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer text-center"
+          >
+            Şimdi Değil, Doğrudan Filmlere Geç →
+          </button>
         </div>
       )}
 
       {/* Step 3: Cold Start 30 Movie Deck */}
       {step === 'coldstart' && (
         <div className="w-full h-full max-w-md mx-auto flex flex-col justify-between py-3">
-          <div className="text-center px-4 py-1">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block">
-              Zevk Algoritması Oluşturuluyor
-            </span>
-            <h3 className="text-sm font-bold text-zinc-300">
-              Aşağıdaki filmleri inceleyin (30 Film)
-            </h3>
+          <div className="flex items-center justify-between px-4 py-2">
+            <div>
+              <span className="text-[11px] font-bold uppercase tracking-wider text-amber-400 block">
+                Zevk Algoritması Oluşturuluyor
+              </span>
+              <h3 className="text-xs font-bold text-zinc-300">
+                30 Kült Film ile Hızlı Kalibrasyon
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSkipColdStart}
+                className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-xs font-semibold cursor-pointer border border-zinc-700 transition-colors"
+              >
+                Testi Geç →
+              </button>
+              {onClose && (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="p-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white text-xs cursor-pointer"
+                  title="Kapat"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           <SwipeDeck

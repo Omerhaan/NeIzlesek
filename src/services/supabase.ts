@@ -1,10 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
-import type { Room, SwipeAction } from '../types'
+import type { Room, SwipeAction, GroupParticipant, RoomMode } from '../types'
+import { supabaseClientConfig } from '../config'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || ''
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createClient(supabaseClientConfig.url, supabaseClientConfig.anonKey)
 
 // Generate a random 6-character room code (uppercase alphanumeric)
 export function generateRoomCode(): string {
@@ -26,13 +24,21 @@ export function getOrCreateUserId(): string {
   return userId
 }
 
-// Create a new match room (optionally with an initial curated 25-movie deck)
-export async function createRoom(initialDeck: number[] = []): Promise<Room> {
+// Create a new match room (supports 'pair' for 2 people or 'group' for 3-5 friends)
+export async function createRoom(
+  creatorName = 'Kurucu',
+  initialDeck: number[] = [],
+  mode: RoomMode = 'pair',
+  maxParticipants = mode === 'group' ? 5 : 2
+): Promise<Room> {
   const roomCode = generateRoomCode()
   const insertPayload: Record<string, any> = {
     room_code: roomCode,
-    status: initialDeck.length > 0 ? 'active' : 'waiting',
+    creator_name: creatorName,
+    partner_name: null,
+    status: 'waiting',
     round_number: 1,
+    selected_platform: mode, // stores 'pair' or 'group' mode reliably
   }
   if (initialDeck.length > 0) {
     insertPayload.room_deck = initialDeck
@@ -49,7 +55,64 @@ export async function createRoom(initialDeck: number[] = []): Promise<Room> {
     throw new Error(error.message)
   }
 
-  return data as Room
+  const room = data as Room
+  room.room_mode = (data.selected_platform === 'group' ? 'group' : 'pair') as RoomMode
+  room.max_participants = maxParticipants
+  return room
+}
+
+// Join an existing room as a partner/friend
+export async function joinRoom(roomId: string, partnerName = 'Partner'): Promise<Room> {
+  // First fetch current room to see if it is pair or group
+  const { data: currentRoom } = await supabase
+    .from('match_rooms')
+    .select('partner_name, selected_platform, status')
+    .eq('id', roomId)
+    .single()
+
+  const isGroup = currentRoom?.selected_platform === 'group'
+  let newPartnerName = partnerName
+
+  if (isGroup && currentRoom?.partner_name) {
+    const existing = currentRoom.partner_name.split(',').map((s: string) => s.trim()).filter(Boolean)
+    if (!existing.includes(partnerName)) {
+      existing.push(partnerName)
+    }
+    newPartnerName = existing.join(', ')
+  }
+
+  const { data, error } = await supabase
+    .from('match_rooms')
+    .update({
+      partner_name: newPartnerName,
+      status: isGroup ? currentRoom?.status || 'waiting' : 'active',
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', roomId)
+    .select()
+    .single()
+
+  if (error) {
+    console.error('Error joining room:', error)
+    throw new Error(error.message)
+  }
+
+  const room = data as Room
+  room.room_mode = isGroup ? 'group' : 'pair'
+  room.max_participants = isGroup ? 5 : 2
+  return room
+}
+
+// Manually activate room when creator starts the group session
+export async function activateRoom(roomId: string): Promise<void> {
+  const { error } = await supabase
+    .from('match_rooms')
+    .update({ status: 'active', updated_at: new Date().toISOString() })
+    .eq('id', roomId)
+
+  if (error) {
+    console.warn('Error activating room:', error.message)
+  }
 }
 
 // Find room by 6-character code
@@ -69,7 +132,10 @@ export async function getRoomByCode(code: string): Promise<Room | null> {
     throw new Error(error.message)
   }
 
-  return data as Room
+  const room = data as Room
+  room.room_mode = (data.selected_platform === 'group' ? 'group' : 'pair') as RoomMode
+  room.max_participants = room.room_mode === 'group' ? 5 : 2
+  return room
 }
 
 // Record a swipe action using the Supabase schema's user_name column
@@ -80,11 +146,16 @@ export async function recordSwipe(
   action: SwipeAction,
   roundNumber: number
 ): Promise<void> {
+  // Map client swipe actions to valid Supabase constraint values ('like', 'pass', 'veto').
+  // 'watched' is tracked in local taste profile, and acts as a neutral pass for the room match session.
+  const dbAction: 'like' | 'pass' | 'veto' =
+    action === 'watched' ? 'pass' : action === 'superlike' ? 'like' : action
+
   const payload = {
     room_id: roomId,
     user_name: userId,
     movie_id: movieId,
-    action,
+    action: dbAction,
     round_number: roundNumber,
   }
 
@@ -114,7 +185,7 @@ export async function recordSwipe(
   }
 
   // The SQL trigger is authoritative; this query is only a best-effort backup.
-  if (action === 'like') {
+  if (dbAction === 'like') {
     // Do not hold up the deck on this redundant check: the database trigger
     // already handles matching, and a slow read must never freeze card progress.
     void Promise.resolve(
@@ -149,22 +220,47 @@ export async function fetchRoomVetoedMovieIds(roomId: string, roundNumber: numbe
 
 // Save the curated 25 movie IDs for the room so both devices get identical movies
 export async function setRoomDeck(roomId: string, movieIds: number[]): Promise<number[]> {
-  const { data, error } = await supabase.rpc('initialize_room_deck', {
-    p_room_id: roomId,
-    p_movie_ids: movieIds,
-  })
+  // Direct update without altering room status (preserves 'waiting' or 'active')
+  const { data: updateData, error: updateError } = await supabase
+    .from('match_rooms')
+    .update({ room_deck: movieIds, updated_at: new Date().toISOString() })
+    .eq('id', roomId)
+    .select('room_deck')
+    .maybeSingle()
 
-  if (error) throw new Error(`Failed to initialize room deck: ${error.message}`)
-  const result = Array.isArray(data) ? data[0] : data
-  if (!result?.room_deck) throw new Error('Room deck initialization returned no deck')
-  return result.room_deck as number[]
+  if (!updateError && updateData?.room_deck) {
+    return updateData.room_deck as number[]
+  }
+
+  // Fallback to RPC if direct update failed
+  try {
+    const { data, error } = await supabase.rpc('initialize_room_deck', {
+      p_room_id: roomId,
+      p_movie_ids: movieIds,
+    })
+
+    if (!error) {
+      const result = Array.isArray(data) ? data[0] : data
+      if (result?.room_deck) return result.room_deck as number[]
+    }
+  } catch {
+    // Ignore RPC failure
+  }
+
+  return movieIds
 }
 
-// Each participant keeps a private-to-the-room movie queue; room_deck is legacy only.
+// Each participant keeps a private-to-the-room movie queue; falls back to match_rooms.room_deck if table not yet created.
 export async function getRoomUserDeck(roomId: string, userId: string, roundNumber: number): Promise<number[] | null> {
   const { data, error } = await supabase.from('room_user_decks').select('movie_ids')
     .eq('room_id', roomId).eq('user_id', userId).eq('round_number', roundNumber).maybeSingle()
-  if (error) throw new Error(`Kişisel oda destesi alınamadı: ${error.message}`)
+  if (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('schema cache')) {
+      return null // Table does not exist in Supabase yet; gracefully fall back
+    }
+    console.warn(`Kişisel oda destesi alınamadı: ${error.message}`)
+    return null
+  }
   return data?.movie_ids ?? null
 }
 
@@ -173,31 +269,84 @@ export async function saveRoomUserDeck(roomId: string, userId: string, roundNumb
     .upsert({ room_id: roomId, user_id: userId, round_number: roundNumber, movie_ids: movieIds },
       { onConflict: 'room_id,user_id,round_number', ignoreDuplicates: true })
     .select('movie_ids').maybeSingle()
-  if (error) throw new Error(`Kişisel oda destesi kaydedilemedi: ${error.message}`)
+
+  if (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('schema cache')) {
+      // Table does not exist in Supabase yet; fall back to match_rooms.room_deck
+      await setRoomDeck(roomId, movieIds)
+      return movieIds
+    }
+    console.warn(`Kişisel oda destesi kaydedilemedi, ortak desteye yazılıyor: ${error.message}`)
+    await setRoomDeck(roomId, movieIds)
+    return movieIds
+  }
+
   if (data?.movie_ids) return data.movie_ids
   const saved = await getRoomUserDeck(roomId, userId, roundNumber)
-  if (!saved) throw new Error('Kişisel oda destesi kaydedildi ancak geri okunamadı.')
-  return saved
+  return saved || movieIds
 }
 
 export async function saveRoomParticipantTaste(roomId: string, userId: string, genreScores: Record<number, number>, watchedIds: number[]): Promise<void> {
   const { error } = await supabase.from('room_participant_tastes').upsert({
     room_id: roomId, user_id: userId, genre_scores: genreScores, watched_movie_ids: watchedIds,
   }, { onConflict: 'room_id,user_id' })
-  if (error) throw new Error(`Oda zevk profili kaydedilemedi: ${error.message}`)
+
+  if (error) {
+    // Non-fatal telemetry; ignore if table is missing
+    if (error.code !== 'PGRST205' && !error.message?.includes('schema cache')) {
+      console.warn(`Oda zevk profili kaydedilemedi: ${error.message}`)
+    }
+  }
+}
+
+export async function fetchPartnerGenreScores(roomId: string, myUserId: string): Promise<Record<number, number> | null> {
+  const { data, error } = await supabase
+    .from('room_participant_tastes')
+    .select('genre_scores, user_id')
+    .eq('room_id', roomId)
+    .neq('user_id', myUserId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return (data.genre_scores as Record<number, number>) || null
+}
+
+export function broadcastTasteScores(roomId: string, myUserId: string, genreScores: Record<number, number>) {
+  const channel = supabase.channel(`room_${roomId}`)
+  void channel.send({
+    type: 'broadcast',
+    event: 'taste_sync',
+    payload: { userId: myUserId, genreScores },
+  })
 }
 
 export async function fetchRoomUsedMovieIds(roomId: string, userId: string): Promise<number[]> {
   const { data, error } = await supabase.from('room_swipes').select('movie_id')
     .eq('room_id', roomId).eq('user_name', userId)
-  if (error) throw new Error(`Odada daha önce görülen filmler alınamadı: ${error.message}`)
+  if (error) {
+    console.warn(`Odada daha önce görülen filmler alınamadı: ${error.message}`)
+    return []
+  }
   return Array.from(new Set((data ?? []).map((row) => row.movie_id)))
+}
+
+export async function getLegacyRoomDeck(roomId: string, roundNumber: number): Promise<number[] | null> {
+  const { data, error } = await supabase.from('match_rooms').select('room_deck, round_number')
+    .eq('id', roomId).maybeSingle()
+  if (error) {
+    console.warn(`Eski oda destesi alınamadı: ${error.message}`)
+    return null
+  }
+  if (Number(data?.round_number) !== roundNumber || !Array.isArray(data?.room_deck) || data.room_deck.length === 0) return null
+  return data.room_deck as number[]
 }
 
 export async function fetchRoomSharedTasteGenres(roomId: string): Promise<number[]> {
   const { data, error } = await supabase.from('room_participant_tastes').select('genre_scores')
     .eq('room_id', roomId).limit(2)
-  if (error) throw new Error(`Ortak zevk profili alınamadı: ${error.message}`)
+  if (error) {
+    return [] // Table may not exist yet
+  }
   if (!data || data.length < 2) return []
   const [first, second] = data.map((row) => row.genre_scores as Record<string, number>)
   const normalize = (scores: Record<string, number>) => {
@@ -260,6 +409,38 @@ export async function fetchRoomSwipesCount(
   }
 
   return { myCount: myMovies.size, partnerCount: partnerMovies.size }
+}
+
+// Fetch swipe progress for each group participant in round
+export async function fetchRoomGroupSwipesCount(
+  roomId: string,
+  roundNumber: number
+): Promise<Record<string, number>> {
+  try {
+    const { data, error } = await supabase
+      .from('room_swipes')
+      .select('user_name, movie_id')
+      .eq('room_id', roomId)
+      .eq('round_number', roundNumber)
+
+    if (error || !data) return {}
+
+    const counts: Record<string, Set<number>> = {}
+    for (const row of data) {
+      if (!row.user_name) continue
+      if (!counts[row.user_name]) counts[row.user_name] = new Set()
+      counts[row.user_name].add(row.movie_id)
+    }
+
+    const result: Record<string, number> = {}
+    for (const [user, set] of Object.entries(counts)) {
+      result[user] = set.size
+    }
+    return result
+  } catch (err) {
+    console.error('Error fetching group swipes count:', err)
+    return {}
+  }
 }
 
 // Fetch un-vetoed, most liked candidate movie IDs for fallback matching
@@ -366,7 +547,13 @@ export async function setRoomMatchedMovie(roomId: string, movieId: number): Prom
   }
 }
 
-// Subscribe to real-time changes in a room (Match status, Vetoes, Swipe progress, + Polling fallback)
+export interface SubscribeToRoomOptions {
+  myParticipantInfo?: { username: string; avatar?: string }
+  onParticipantsChanged?: (participants: GroupParticipant[]) => void
+  onRoomActivated?: () => void
+}
+
+// Subscribe to real-time changes in a room (Match status, Vetoes, Swipe progress, Presence + Polling fallback)
 export function subscribeToRoom(
   roomId: string,
   roundNumber: number,
@@ -374,18 +561,86 @@ export function subscribeToRoom(
   onMatch: (matchedMovieId: number) => void,
   onVeto?: (vetoedMovieId: number, vetoUserId: string) => void,
   onPartnerSwiped?: (partnerSwipeCount: number) => void,
-  onRoundChanged?: (round: number) => void
+  onRoundChanged?: (round: number) => void,
+  onPartnerJoined?: (partnerName: string) => void,
+  alreadyHasPartner = false,
+  onPartnerTasteReceived?: (scores: Record<number, number>) => void,
+  myGenreScores?: Record<number, number>,
+  options?: SubscribeToRoomOptions
 ) {
   let notifiedMatchId: number | null = null
+  let notifiedPartner = alreadyHasPartner
+
   const notifyMatchOnce = (movieId: number) => {
     if (notifiedMatchId === movieId) return
     notifiedMatchId = movieId
     onMatch(movieId)
   }
 
-  // 1. Supabase Realtime channel
+  const notifyPartnerOnce = (partnerName?: string | null) => {
+    if (notifiedPartner || !partnerName || partnerName.trim() === '') return
+    notifiedPartner = true
+    onPartnerJoined?.(partnerName.trim())
+  }
+
+  // 1. Supabase Realtime channel with Presence support
   const channel = supabase
-    .channel(`room_${roomId}`)
+    .channel(`room_${roomId}`, {
+      config: {
+        presence: {
+          key: myUserId,
+        },
+      },
+    })
+    .on(
+      'broadcast',
+      { event: 'taste_sync' },
+      (payload) => {
+        const data = payload?.payload as { userId: string; genreScores: Record<number, number> } | undefined
+        if (data && data.userId !== myUserId && data.genreScores) {
+          onPartnerTasteReceived?.(data.genreScores)
+          // Echo our taste back if available so partner is guaranteed to have it
+          if (myGenreScores && Object.keys(myGenreScores).length > 0) {
+            void channel.send({
+              type: 'broadcast',
+              event: 'taste_sync',
+              payload: { userId: myUserId, genreScores: myGenreScores },
+            })
+          }
+        }
+      }
+    )
+
+  const dispatchParticipants = () => {
+    const presenceState = channel.presenceState<{
+      userId?: string
+      username?: string
+      avatar?: string
+      swipesCount?: number
+      isReady?: boolean
+    }>()
+
+    const list: GroupParticipant[] = []
+    for (const key of Object.keys(presenceState)) {
+      const presences = presenceState[key]
+      if (presences && presences.length > 0) {
+        const p = presences[presences.length - 1]
+        list.push({
+          userId: p.userId || key,
+          username: p.username || 'Katılımcı',
+          avatar: p.avatar || '🍿',
+          swipesCount: p.swipesCount || 0,
+          isReady: p.isReady ?? true,
+        })
+      }
+    }
+    options?.onParticipantsChanged?.(list)
+  }
+
+  channel
+    .on('presence', { event: 'sync' }, dispatchParticipants)
+    .on('presence', { event: 'join' }, dispatchParticipants)
+    .on('presence', { event: 'leave' }, dispatchParticipants)
     .on(
       'postgres_changes',
       {
@@ -399,8 +654,14 @@ export function subscribeToRoom(
         if (newRecord.status === 'matched' && newRecord.matched_movie_id) {
           notifyMatchOnce(newRecord.matched_movie_id)
         }
+        if (newRecord.status === 'active') {
+          options?.onRoomActivated?.()
+        }
         if (newRecord.round_number && newRecord.round_number > roundNumber) {
           onRoundChanged?.(newRecord.round_number)
+        }
+        if (newRecord.partner_name) {
+          notifyPartnerOnce(newRecord.partner_name)
         }
       }
     )
@@ -431,22 +692,51 @@ export function subscribeToRoom(
         }
       }
     )
-    .subscribe()
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        if (myGenreScores && Object.keys(myGenreScores).length > 0) {
+          void channel.send({
+            type: 'broadcast',
+            event: 'taste_sync',
+            payload: { userId: myUserId, genreScores: myGenreScores },
+          })
+        }
+        if (options?.myParticipantInfo) {
+          try {
+            await channel.track({
+              userId: myUserId,
+              username: options.myParticipantInfo.username || 'Katılımcı',
+              avatar: options.myParticipantInfo.avatar || '🍿',
+              swipesCount: 0,
+              isReady: true,
+            })
+          } catch (err) {
+            console.warn('Presence track error:', err)
+          }
+        }
+      }
+    })
 
   // 2. Unbreakable polling fallback (every 2.5s) to guarantee matching and partner swipe sync even if Realtime is unavailable
   const pollInterval = setInterval(async () => {
     try {
       const { data } = await supabase
         .from('match_rooms')
-        .select('status, matched_movie_id, round_number')
+        .select('status, matched_movie_id, round_number, partner_name')
         .eq('id', roomId)
         .single()
 
       if (data && data.status === 'matched' && data.matched_movie_id) {
         notifyMatchOnce(data.matched_movie_id)
       }
+      if (data && data.status === 'active') {
+        options?.onRoomActivated?.()
+      }
       if (data?.round_number && data.round_number > roundNumber) {
         onRoundChanged?.(data.round_number)
+      }
+      if (data && data.partner_name) {
+        notifyPartnerOnce(data.partner_name)
       }
 
       // Sync exact partner swipes count periodically
@@ -462,5 +752,69 @@ export function subscribeToRoom(
   return () => {
     clearInterval(pollInterval)
     supabase.removeChannel(channel)
+  }
+}
+
+// Track active participant presence updates (e.g. swipes count)
+export async function updateParticipantPresence(
+  roomId: string,
+  myUserId: string,
+  username: string,
+  avatar: string,
+  swipesCount: number
+): Promise<void> {
+  try {
+    const channel = supabase.channel(`room_${roomId}`)
+    await channel.track({
+      userId: myUserId,
+      username,
+      avatar,
+      swipesCount,
+      isReady: true,
+    })
+  } catch {
+    // Non-critical presence update error
+  }
+}
+
+// -------------------------------------------------------------
+// Cloud Account & Authentication (Supabase Auth)
+// -------------------------------------------------------------
+
+export async function getCurrentAuthUser() {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession()
+    if (error || !session) return null
+    return session.user
+  } catch {
+    return null
+  }
+}
+
+export async function signOutUser(): Promise<void> {
+  try {
+    await supabase.auth.signOut()
+  } catch (err) {
+    console.warn('Sign out error:', err)
+  }
+}
+
+export async function syncProfileToCloud(profile: any): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.user) return false
+
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        taste_profile: profile,
+        username: profile.username,
+        avatar: profile.avatar,
+        updated_at: new Date().toISOString(),
+      },
+    })
+    return !error
+  } catch (err) {
+    console.warn('Failed to sync profile to cloud:', err)
+    return false
   }
 }

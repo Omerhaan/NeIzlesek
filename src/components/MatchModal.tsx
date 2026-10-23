@@ -4,6 +4,7 @@ import { Sparkles, Star, Film, X } from 'lucide-react'
 import type { Movie } from '../types'
 import { LOGO_BASE_URL } from '../services/tmdb'
 import { MovieArtwork } from './MovieArtwork'
+import { hapticMatch } from '../utils/haptics'
 
 interface MatchModalProps {
   movie: Movie | null
@@ -14,6 +15,7 @@ interface MatchModalProps {
 export function MatchModal({ movie, isOpen, onClose }: MatchModalProps) {
   useEffect(() => {
     if (isOpen) {
+      hapticMatch()
       // Fire confetti burst
       const duration = 2.5 * 1000
       const end = Date.now() + duration
