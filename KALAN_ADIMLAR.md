@@ -448,3 +448,8 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
   - **Masaüstü Tuş İpuçları Kaldırıldı:** Alt kısımdaki klavye ipucu satırı arayüzü sadeleştirmek için kaldırıldı (klavye kontrolleri aktif çalışmaya devam ediyor).
   - **Aşağı Doğru Genişletme & Floating Dock:** Butonlar (`Pas`, `Veto`, `İzledim`, `Beğen`) kartın alt ucunun üzerinde modern cam efektiyle (`backdrop-blur-md bg-zinc-950/90`) yüzen konuma getirildi; kart alt metin boşluğu (`pb-20 sm:pb-22`) ve karartma gradyanı artırıldı.
   - **Yukarı Doğru Story Tarzı Genişletme:** Kartlar üst sınırına kadar uzatıldı; ince hikaye (story) ilerleme çubuğu, sol üst `RotateCcw` geri alma butonu ve tur rozeti doğrudan kartın üzerine bindirildi (`top-2.5 z-30`). Kartlar dikeyde ekranın neredeyse tamamını kaplayan sinematik boyuta ulaştı.
+- [x] **Gelişmiş Sinematik Kaydırma Animasyonları & Haptik Geri Bildirim:**
+  - **Arka Kartın Canlanması (Parallax & Scale-up):** Üstteki kart sürüklendikçe arkadaki kart gerçek zamanlı olarak `0.94 -> 1.0` boyutuna büyür, hafif yukarı kayar ve opaklığı açılarak sahneye girer.
+  - **Tepkisel Buton Mikro-Etkileşimi:** Kart sağa çekildiğinde Beğen (Kalp), sola çekildiğinde Pas (X), yukarı itildiğinde İzledim (Göz) butonu büyür (`scale-120`) ve o renkte parlar.
+  - **Dinamik Neon Işıma (Aura & Glow):** Kartın sürüklendiği yöne göre kartın kenarlarında ve iç gradyanında neon ışık hüzmesi (yeşil, gül kırmızısı, mor veya kırmızı) belirir.
+  - **Kavisli Fırlatma Fiziği & Yaylanma:** Kart serbest bırakıldığında doğal yaylanma (`cubic-bezier(0.175, 0.885, 0.32, 1.15)`) ve kavisli açısal uçuşla ekran dışına fırlar. Damgalar (`BEĞEN`, `PAS`, `👁️ İZLEDİM`, `VETO`) dinamik elastik damga efektiyle belirir.
