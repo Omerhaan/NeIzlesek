@@ -113,20 +113,20 @@ export function SwipeDeck({
       if (!currentMovie || isLoading || swipeInProgress.current) return
       swipeInProgress.current = true
 
-      // Set target offset for exit animation and trigger haptic feedback
+      // Set target offset for natural arc exit animation and trigger haptic feedback
       if (action === 'pass') {
         hapticPass()
-        setDragOffset({ x: -window.innerWidth - 100, y: 0 })
+        setDragOffset({ x: -window.innerWidth - 120, y: dragOffset.y + 40 })
       } else if (action === 'like') {
         hapticLike()
-        setDragOffset({ x: window.innerWidth + 100, y: 0 })
+        setDragOffset({ x: window.innerWidth + 120, y: dragOffset.y + 40 })
       } else if (action === 'veto') {
         hapticVeto()
-        setDragOffset({ x: 0, y: window.innerHeight + 100 })
+        setDragOffset({ x: dragOffset.x * 0.4, y: window.innerHeight + 120 })
       } else {
         // watched
         hapticWatched()
-        setDragOffset({ x: 0, y: -window.innerHeight - 100 })
+        setDragOffset({ x: dragOffset.x * 0.4, y: -window.innerHeight - 120 })
       }
 
       setTimeout(() => {
@@ -520,6 +520,15 @@ export function SwipeDeck({
   const currentCount = Math.min(roundIndex + 1, effectiveLimit)
   const progressPercent = Math.min(100, (roundIndex / effectiveLimit) * 100)
 
+  // Realtime gesture progress for button micro-interactions
+  const isHorizontalDrag = Math.abs(dragOffset.x) > Math.abs(dragOffset.y) * 1.15
+  const isVerticalDrag = Math.abs(dragOffset.y) > Math.abs(dragOffset.x) * 1.15
+
+  const likeProgress = isHorizontalDrag && dragOffset.x > 25 ? Math.min(1, (dragOffset.x - 25) / 95) : 0
+  const passProgress = isHorizontalDrag && dragOffset.x < -25 ? Math.min(1, (-dragOffset.x - 25) / 95) : 0
+  const watchedProgress = isVerticalDrag && dragOffset.y < -25 ? Math.min(1, (-dragOffset.y - 25) / 95) : 0
+  const vetoProgress = isVerticalDrag && dragOffset.y > 35 ? Math.min(1, (dragOffset.y - 35) / 95) : 0
+
   return (
     <div className="flex-1 w-full max-w-md mx-auto flex flex-col px-3 sm:px-4 pb-3 pt-0.5 overflow-hidden">
       {/* Main Card & Floating Overlays Stage */}
@@ -535,14 +544,14 @@ export function SwipeDeck({
           onMouseUp={handleEnd}
           onMouseLeave={handleEnd}
         >
-          {/* Next Card in Stack */}
+          {/* Next Card in Stack (with Parallax & Scale-up response) */}
           {nextMovie && (
             <MovieCard
               key={nextMovie.id}
               movie={nextMovie}
               isTopCard={false}
-              dragOffset={{ x: 0, y: 0 }}
-              isDragging={false}
+              dragOffset={dragOffset}
+              isDragging={isDragging}
               onOpenDetails={onOpenDetails}
             />
           )}
@@ -610,13 +619,18 @@ export function SwipeDeck({
           </div>
         </div>
 
-        {/* Floating Centered Action Buttons Toolbar (Tinder-style dock floating over card bottom) */}
+        {/* Floating Centered Action Buttons Toolbar (Tinder-style dock with reactive drag scale & glow) */}
         <div className="absolute bottom-3 inset-x-0 flex items-center justify-center gap-4 sm:gap-5 z-30 pointer-events-none">
           {/* Pass Button */}
           <button
             type="button"
             onClick={() => triggerSwipe('pass')}
-            className="w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-rose-500/60 text-rose-500 hover:bg-rose-500/20 hover:border-rose-400 hover:scale-105 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            style={{ transform: `scale(${1 + passProgress * 0.22})` }}
+            className={`w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
+              passProgress > 0.15
+                ? 'border-rose-400 bg-rose-500/30 text-rose-300 shadow-2xl shadow-rose-500/60'
+                : 'border-rose-500/60 text-rose-500 hover:bg-rose-500/20 hover:border-rose-400 hover:scale-105 shadow-xl'
+            } active:scale-90`}
             title="Pas (Geç)"
           >
             <X className="w-6 h-6" strokeWidth={2.5} />
@@ -628,11 +642,14 @@ export function SwipeDeck({
               type="button"
               disabled={remainingVetoes <= 0}
               onClick={handleVetoClick}
-              className={`relative w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto ${
+              style={{ transform: `scale(${1 + vetoProgress * 0.22})` }}
+              className={`relative w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
                 remainingVetoes > 0
-                  ? 'border-red-600/70 text-red-500 hover:bg-red-500/20 hover:border-red-500 hover:scale-105'
+                  ? vetoProgress > 0.15
+                    ? 'border-red-500 bg-red-600/35 text-red-300 shadow-2xl shadow-red-600/70'
+                    : 'border-red-600/70 text-red-500 hover:bg-red-500/20 hover:border-red-500 hover:scale-105 shadow-xl'
                   : 'border-zinc-800 text-zinc-600 cursor-not-allowed opacity-50'
-              }`}
+              } active:scale-90`}
               title={`Veto Et (Kalan: ${remainingVetoes})`}
             >
               <Ban className="w-5 h-5 stroke-[2.5]" />
@@ -646,7 +663,12 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={() => triggerSwipe('watched')}
-            className="w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-purple-500/60 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:scale-105 flex items-center justify-center shadow-2xl transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            style={{ transform: `scale(${1 + watchedProgress * 0.22})` }}
+            className={`w-13 h-13 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
+              watchedProgress > 0.15
+                ? 'border-purple-400 bg-purple-500/35 text-purple-300 shadow-2xl shadow-purple-500/70'
+                : 'border-purple-500/60 text-purple-400 hover:bg-purple-500/20 hover:border-purple-400 hover:scale-105 shadow-xl'
+            } active:scale-90`}
             title="İzledim"
           >
             <Eye className="w-5 h-5 stroke-[2.2]" />
@@ -656,7 +678,12 @@ export function SwipeDeck({
           <button
             type="button"
             onClick={() => triggerSwipe('like')}
-            className="w-14 h-14 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 border-emerald-500/70 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:scale-105 flex items-center justify-center shadow-2xl shadow-emerald-500/25 transition-transform active:scale-90 cursor-pointer pointer-events-auto"
+            style={{ transform: `scale(${1 + likeProgress * 0.22})` }}
+            className={`w-14 h-14 rounded-full bg-zinc-950/90 backdrop-blur-md border-2 transition-all flex items-center justify-center cursor-pointer pointer-events-auto ${
+              likeProgress > 0.15
+                ? 'border-emerald-300 bg-emerald-500/35 text-emerald-300 shadow-2xl shadow-emerald-500/70'
+                : 'border-emerald-500/70 text-emerald-400 hover:bg-emerald-500/20 hover:border-emerald-400 hover:scale-105 shadow-2xl shadow-emerald-500/25'
+            } active:scale-90`}
             title="Beğen"
           >
             <Heart className="w-7 h-7 fill-emerald-400 text-emerald-400" />

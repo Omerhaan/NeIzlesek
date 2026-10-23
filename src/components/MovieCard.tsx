@@ -69,32 +69,71 @@ export function MovieCard({
     }
   }, [currentSrc])
 
-  // Compute rotation and translation if it's the top card being dragged
-  const rotation = isTopCard ? (dragOffset.x / 15) : 0
+  // Realtime drag and gesture physics
+  const dragDist = Math.hypot(dragOffset.x, dragOffset.y)
+  const dragProgress = Math.min(1, dragDist / 140)
+  const isVertical = Math.abs(dragOffset.y) > Math.abs(dragOffset.x) * 1.15
+
+  // Drag threshold for stamping & aura feedback
+  const swipeDirection =
+    isVertical && dragOffset.y > 55
+      ? 'veto'
+      : isVertical && dragOffset.y < -45
+      ? 'watched'
+      : dragOffset.x > 45
+      ? 'like'
+      : dragOffset.x < -45
+      ? 'pass'
+      : null
+
+  // Natural rotation during drag
+  const rotation = isTopCard ? (dragOffset.x / 14) : 0
+
+  // Parallax & scale-up animation for background (next) card
+  const backgroundScale = 0.94 + dragProgress * 0.06
+  const backgroundTranslateY = -12 + dragProgress * 12
+  const backgroundOpacity = 0.75 + dragProgress * 0.25
+
   const transformStyle = isTopCard
     ? {
         transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${rotation}deg)`,
-        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
+        transition: isDragging ? 'none' : 'transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.15)',
+        boxShadow:
+          swipeDirection === 'like'
+            ? `0 0 50px rgba(16, 185, 129, ${dragProgress * 0.55})`
+            : swipeDirection === 'pass'
+            ? `0 0 50px rgba(244, 63, 94, ${dragProgress * 0.55})`
+            : swipeDirection === 'watched'
+            ? `0 0 50px rgba(168, 85, 247, ${dragProgress * 0.55})`
+            : swipeDirection === 'veto'
+            ? `0 0 50px rgba(220, 38, 38, ${dragProgress * 0.6})`
+            : undefined,
       }
-    : {}
-
-  // Drag threshold for stamping feedback
-  const swipeDirection =
-    dragOffset.y > 60 && Math.abs(dragOffset.x) < 40
-      ? 'veto'
-      : dragOffset.x > 50
-      ? 'like'
-      : dragOffset.x < -50
-      ? 'pass'
-      : null
+    : {
+        transform: `scale(${backgroundScale}) translateY(${backgroundTranslateY}px)`,
+        opacity: backgroundOpacity,
+        transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease',
+      }
 
   const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
 
   return (
     <div
       style={transformStyle}
-      className={`absolute inset-0 w-full h-full rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border border-zinc-800 flex flex-col justify-end select-none pointer-events-auto transition-transform ${
-        isTopCard ? 'z-20 cursor-grab active:cursor-grabbing' : 'z-10 scale-[0.96] -translate-y-3 opacity-80'
+      className={`absolute inset-0 w-full h-full rounded-3xl overflow-hidden shadow-2xl bg-zinc-900 border flex flex-col justify-end select-none pointer-events-auto transition-colors duration-150 ${
+        isTopCard
+          ? `z-20 cursor-grab active:cursor-grabbing ${
+              swipeDirection === 'like'
+                ? 'border-emerald-400/80'
+                : swipeDirection === 'pass'
+                ? 'border-rose-500/80'
+                : swipeDirection === 'watched'
+                ? 'border-purple-400/80'
+                : swipeDirection === 'veto'
+                ? 'border-red-600/80'
+                : 'border-zinc-800'
+            }`
+          : 'z-10 border-zinc-800/80'
       }`}
     >
       {/* Background Poster Image / Skeleton / Fallback */}
@@ -149,11 +188,30 @@ export function MovieCard({
       {/* Bottom Gradient Overlay for readability */}
       <div className="absolute inset-x-0 bottom-0 h-4/5 bg-gradient-to-t from-black via-black/85 to-transparent pointer-events-none" />
 
-      {/* Swipe Feedback Stamp Badges */}
+      {/* Dynamic Directional Neon Aura Overlay */}
+      {isTopCard && swipeDirection && (
+        <div
+          className={`absolute inset-0 pointer-events-none transition-opacity duration-100 ${
+            swipeDirection === 'like'
+              ? 'bg-gradient-to-tr from-emerald-500/20 via-transparent to-emerald-500/10'
+              : swipeDirection === 'pass'
+              ? 'bg-gradient-to-tl from-rose-500/20 via-transparent to-rose-500/10'
+              : swipeDirection === 'watched'
+              ? 'bg-gradient-to-t from-purple-500/25 via-transparent to-purple-500/15'
+              : 'bg-gradient-to-b from-red-600/25 via-transparent to-red-600/15'
+          }`}
+          style={{ opacity: dragProgress }}
+        />
+      )}
+
+      {/* Swipe Feedback Stamp Badges with spring scale */}
       {isTopCard && swipeDirection === 'like' && (
         <div
-          className="absolute top-18 left-6 border-4 border-emerald-400 text-emerald-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl -rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse z-20"
-          style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
+          className="absolute top-20 left-6 border-4 border-emerald-400 text-emerald-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/60 backdrop-blur-md pointer-events-none z-20 transition-all duration-75"
+          style={{
+            opacity: Math.min(1, Math.abs(dragOffset.x) / 70),
+            transform: `rotate(-14deg) scale(${0.85 + Math.min(0.3, Math.abs(dragOffset.x) / 150)})`,
+          }}
         >
           BEĞEN
         </div>
@@ -161,16 +219,35 @@ export function MovieCard({
 
       {isTopCard && swipeDirection === 'pass' && (
         <div
-          className="absolute top-18 right-6 border-4 border-rose-500 text-rose-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl rotate-15 uppercase tracking-wider shadow-lg bg-black/40 backdrop-blur-sm pointer-events-none animate-pulse z-20"
-          style={{ opacity: Math.min(1, Math.abs(dragOffset.x) / 100) }}
+          className="absolute top-20 right-6 border-4 border-rose-500 text-rose-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/60 backdrop-blur-md pointer-events-none z-20 transition-all duration-75"
+          style={{
+            opacity: Math.min(1, Math.abs(dragOffset.x) / 70),
+            transform: `rotate(14deg) scale(${0.85 + Math.min(0.3, Math.abs(dragOffset.x) / 150)})`,
+          }}
         >
           PAS
         </div>
       )}
 
+      {isTopCard && swipeDirection === 'watched' && (
+        <div
+          className="absolute top-20 inset-x-8 border-4 border-purple-400 text-purple-400 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/70 backdrop-blur-md pointer-events-none text-center z-20 transition-all duration-75"
+          style={{
+            opacity: Math.min(1, Math.abs(dragOffset.y) / 60),
+            transform: `scale(${0.85 + Math.min(0.3, Math.abs(dragOffset.y) / 140)})`,
+          }}
+        >
+          👁️ İZLEDİM
+        </div>
+      )}
+
       {isTopCard && swipeDirection === 'veto' && (
         <div
-          className="absolute top-18 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-sm pointer-events-none text-center animate-pulse z-30"
+          className="absolute top-20 inset-x-8 border-4 border-red-600 text-red-500 font-black text-2xl md:text-3xl px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xl bg-black/80 backdrop-blur-md pointer-events-none text-center z-30 transition-all duration-75"
+          style={{
+            opacity: Math.min(1, Math.abs(dragOffset.y) / 60),
+            transform: `scale(${0.85 + Math.min(0.3, Math.abs(dragOffset.y) / 140)})`,
+          }}
         >
           🚫 VETO
         </div>
