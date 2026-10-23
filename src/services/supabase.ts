@@ -206,6 +206,30 @@ export async function recordSwipe(
   }
 }
 
+// Delete a recorded swipe action when user performs an undo in a room session
+export async function deleteRoomSwipe(
+  roomId: string,
+  userId: string,
+  movieId: number,
+  roundNumber: number
+): Promise<void> {
+  try {
+    const { error } = await supabase
+      .from('room_swipes')
+      .delete()
+      .eq('room_id', roomId)
+      .eq('user_name', userId)
+      .eq('movie_id', movieId)
+      .eq('round_number', roundNumber)
+
+    if (error) {
+      console.warn('Could not delete room swipe on undo:', error.message)
+    }
+  } catch (err) {
+    console.warn('Failed to delete swipe on undo:', err)
+  }
+}
+
 export async function fetchRoomVetoedMovieIds(roomId: string, roundNumber: number): Promise<number[]> {
   const { data, error } = await supabase
     .from('room_swipes')

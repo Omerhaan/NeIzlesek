@@ -35,6 +35,7 @@ import {
   syncProfileToCloud,
   activateRoom,
   updateParticipantPresence,
+  deleteRoomSwipe,
 } from './services/supabase'
 import {
   fetchFilteredMovies,
@@ -663,12 +664,26 @@ export function App() {
     if (authUser) {
       void syncProfileToCloud(lastAction.previousProfile)
     }
-  }, [authUser])
+
+    // If active in a room, delete the recorded swipe from Supabase so no false match triggers
+    if (room) {
+      void deleteRoomSwipe(room.id, userId, lastAction.movie.id, roundNumber)
+      if (room.room_mode === 'group') {
+        void updateParticipantPresence(
+          room.id,
+          userId,
+          lastAction.previousProfile.username || 'Katılımcı',
+          lastAction.previousProfile.avatar || '🍿',
+          Math.max(0, initialSwipeIndex - 1)
+        )
+      }
+    }
+  }, [authUser, room, userId, roundNumber, initialSwipeIndex])
 
   const handleLoadNextRound = async () => {
-    swipeHistoryRef.current = []
     const nextPage = page + 1
     if (room) {
+      swipeHistoryRef.current = []
       // Prepare this user's next 25-film deck, then advance the shared room round.
       setIsLoading(true)
       try {
@@ -691,7 +706,10 @@ export function App() {
         setIsLoading(false)
       }
     } else {
-      // In solo mode: append more movies seamlessly (infinite feed)
+      // In solo mode: retain last 15 history items for smooth cross-page undo
+      if (swipeHistoryRef.current.length > 15) {
+        swipeHistoryRef.current = swipeHistoryRef.current.slice(-15)
+      }
       loadMovies(nextPage, filters, true, 20)
     }
   }

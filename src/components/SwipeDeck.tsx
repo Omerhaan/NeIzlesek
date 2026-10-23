@@ -281,6 +281,29 @@ export function SwipeDeck({
     }
   }
 
+  // Global window pointer listeners to guarantee smooth drag release even outside bounds
+  useEffect(() => {
+    if (!isDragging) return
+
+    const handleWindowMove = (e: PointerEvent) => {
+      handleMove(e.clientX, e.clientY)
+    }
+
+    const handleWindowUp = () => {
+      handleEnd()
+    }
+
+    window.addEventListener('pointermove', handleWindowMove)
+    window.addEventListener('pointerup', handleWindowUp)
+    window.addEventListener('pointercancel', handleWindowUp)
+
+    return () => {
+      window.removeEventListener('pointermove', handleWindowMove)
+      window.removeEventListener('pointerup', handleWindowUp)
+      window.removeEventListener('pointercancel', handleWindowUp)
+    }
+  }, [isDragging, dragOffset])
+
   // Automatically trigger fallback voting modal ONCE when both users finish and no direct match occurred
   useEffect(() => {
     if (
