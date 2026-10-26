@@ -5,6 +5,7 @@ import type { Movie } from '../types'
 import { LOGO_BASE_URL } from '../services/tmdb'
 import { MovieArtwork } from './MovieArtwork'
 import { hapticMatch } from '../utils/haptics'
+import { playMatchSound } from '../utils/audio'
 
 interface MatchModalProps {
   movie: Movie | null
@@ -45,6 +46,7 @@ export function MatchModal({ movie, isOpen, onClose }: MatchModalProps) {
   useEffect(() => {
     if (isOpen) {
       hapticMatch()
+      playMatchSound()
       // Fire confetti burst
       const duration = 2.5 * 1000
       const end = Date.now() + duration

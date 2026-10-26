@@ -1,11 +1,13 @@
-import { Film, LogOut, Copy, Check, SlidersHorizontal, ChevronDown, Search } from 'lucide-react'
+import { Film, LogOut, Copy, Check, SlidersHorizontal, ChevronDown, Search, Volume2, VolumeX, Dices } from 'lucide-react'
 import { useState } from 'react'
+import { isSoundEnabled, setSoundEnabled } from '../utils/audio'
 
 interface HeaderProps {
   roomCode?: string | null
   onLeaveRoom?: () => void
   onOpenFilter?: () => void
   onOpenSearch?: () => void
+  onOpenRoulette?: () => void
   selectedGenreName?: string
   activeFilterCount?: number
 }
@@ -15,10 +17,18 @@ export function Header({
   onLeaveRoom,
   onOpenFilter,
   onOpenSearch,
+  onOpenRoulette,
   selectedGenreName,
   activeFilterCount = 0,
 }: HeaderProps) {
   const [copied, setCopied] = useState(false)
+  const [soundOn, setSoundOn] = useState(() => isSoundEnabled())
+
+  const toggleSound = () => {
+    const next = !soundOn
+    setSoundOn(next)
+    setSoundEnabled(next)
+  }
 
   const copyCode = () => {
     if (!roomCode) return
@@ -39,6 +49,34 @@ export function Header({
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Sound FX Toggle Button */}
+        <button
+          type="button"
+          onClick={toggleSound}
+          className={`p-2 rounded-full border transition-colors cursor-pointer ${
+            soundOn
+              ? 'bg-zinc-900 hover:bg-zinc-800 border-zinc-800 text-zinc-300 hover:text-white'
+              : 'bg-zinc-900/60 border-zinc-800/60 text-zinc-500 hover:text-zinc-400'
+          }`}
+          title={soundOn ? 'Ses Efektleri Açık (Kapatmak için tıkla)' : 'Ses Efektleri Kapalı (Açmak için tıkla)'}
+          aria-label={soundOn ? 'Sesi Kapat' : 'Sesi Aç'}
+        >
+          {soundOn ? <Volume2 className="w-3.5 h-3.5 text-amber-400" /> : <VolumeX className="w-3.5 h-3.5" />}
+        </button>
+
+        {/* Film Ruleti Button */}
+        {onOpenRoulette && (
+          <button
+            type="button"
+            onClick={onOpenRoulette}
+            className="p-2 bg-gradient-to-tr from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 text-amber-300 rounded-full transition-colors cursor-pointer"
+            title="Film Ruleti (Kararsızım, Sen Seç!)"
+            aria-label="Film Ruleti"
+          >
+            <Dices className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* Global Search Button */}
         {onOpenSearch && (
           <button

@@ -17,11 +17,17 @@ import {
   Cloud,
   Sparkles,
   ShieldCheck,
+  QrCode,
+  Dices,
+  Download,
 } from 'lucide-react'
 import { createRoom, getRoomByCode } from '../services/supabase'
 import type { Room, Movie, RoomMode } from '../types'
 import { MovieArtwork } from './MovieArtwork'
 import { PrivacyPolicyModal } from './PrivacyPolicyModal'
+import { RoomQRCodeModal } from './RoomQRCodeModal'
+import { MovieRouletteModal } from './MovieRouletteModal'
+import { exportWatchedMoviesCSV, exportLikedMoviesCSV } from '../utils/exportList'
 import {
   removeLikedMovie,
   markMovieAsWatched,
@@ -77,6 +83,8 @@ export function UserProfile({
   // Watchlist tabs & search
   const [activeListTab, setActiveListTab] = useState<'liked' | 'watched'>('liked')
   const [searchQuery, setSearchQuery] = useState('')
+  const [qrModalRoomCode, setQrModalRoomCode] = useState<string | null>(null)
+  const [isRouletteOpen, setIsRouletteOpen] = useState(false)
   const [selectedMovieForDetail, setSelectedMovieForDetail] = useState<{
     movie: Movie
     listType: 'liked' | 'watched'
@@ -304,6 +312,14 @@ export function UserProfile({
             </div>
             <div className="flex gap-2">
               <button
+                type="button"
+                onClick={() => setQrModalRoomCode(activeRoom.room_code)}
+                className="p-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded-xl transition-colors cursor-pointer border border-amber-500/30"
+                title="QR Kod Göster"
+              >
+                <QrCode className="w-4 h-4" />
+              </button>
+              <button
                 onClick={() => handleCopyLink(activeRoom.room_code)}
                 className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl transition-colors cursor-pointer"
                 title="Kopyala"
@@ -401,16 +417,23 @@ export function UserProfile({
               <span className="text-2xl font-black font-mono tracking-widest text-amber-400 block mb-3">
                 {createdRoom.room_code}
               </span>
-              <div className="flex gap-2 mb-3">
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setQrModalRoomCode(createdRoom.room_code)}
+                  className="py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer border border-amber-500/30"
+                >
+                  <QrCode className="w-3.5 h-3.5" /> QR Kod
+                </button>
                 <button
                   onClick={() => handleShareWhatsApp(createdRoom.room_code)}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Share2 className="w-3.5 h-3.5" /> WhatsApp
                 </button>
                 <button
                   onClick={() => handleCopyLink(createdRoom.room_code)}
-                  className="flex-1 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   Kopyala
@@ -570,6 +593,35 @@ export function UserProfile({
             >
               {watchedMovies.length}
             </span>
+          </button>
+        </div>
+
+        {/* Watchlist Actions Row: Film Ruleti & CSV İndir */}
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setIsRouletteOpen(true)}
+            className="flex-1 py-2 px-3 bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 hover:from-amber-500/30 hover:to-red-500/30 border border-amber-500/30 rounded-xl text-xs font-bold text-amber-300 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-98"
+          >
+            <Dices className="w-3.5 h-3.5 text-amber-400" />
+            <span>Kararsızım (Film Ruleti)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (activeListTab === 'liked') {
+                exportLikedMoviesCSV(likedMovies)
+              } else {
+                exportWatchedMoviesCSV(watchedMovies)
+              }
+            }}
+            disabled={activeListTab === 'liked' ? likedMovies.length === 0 : watchedMovies.length === 0}
+            className="py-2 px-3 bg-zinc-900 hover:bg-zinc-800 disabled:opacity-40 border border-zinc-800 rounded-xl text-xs font-semibold text-zinc-300 hover:text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+            title="Excel / Letterboxd Uyumlu CSV İndir"
+          >
+            <Download className="w-3.5 h-3.5 text-zinc-400" />
+            <span>CSV İndir</span>
           </button>
         </div>
 
@@ -740,6 +792,30 @@ export function UserProfile({
           Bu uygulama film verileri için The Movie Database (TMDb) ve JustWatch API&apos;lerini kullanmaktadır.
         </p>
       </div>
+
+      {/* Film Ruleti Modal */}
+      <MovieRouletteModal
+        isOpen={isRouletteOpen}
+        onClose={() => setIsRouletteOpen(false)}
+        likedMovies={tasteProfile.likedMovies || []}
+        matchedMovies={(tasteProfile.matchHistory || []).map((h) => h.movie)}
+        onOpenDetails={(movie) =>
+          setSelectedMovieForDetail({
+            movie,
+            listType: 'liked',
+          })
+        }
+      />
+
+      {/* Room QR Code Modal */}
+      {qrModalRoomCode && (
+        <RoomQRCodeModal
+          isOpen={!!qrModalRoomCode}
+          onClose={() => setQrModalRoomCode(null)}
+          roomCode={qrModalRoomCode}
+          roomMode={activeRoom?.room_mode || selectedMode}
+        />
+      )}
 
       {/* Privacy Policy & Terms Modal */}
       <PrivacyPolicyModal

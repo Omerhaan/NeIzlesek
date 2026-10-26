@@ -4,6 +4,7 @@ import type { Movie, SwipeAction, RoomMode, GroupParticipant } from '../types'
 import { getMovieImageCandidates } from '../services/tmdb'
 import { MovieCard } from './MovieCard'
 import { hapticLike, hapticPass, hapticVeto, hapticWatched, hapticLight } from '../utils/haptics'
+import { playLikeSound, playPassSound, playWatchedSound, playHeartSound } from '../utils/audio'
 
 interface SwipeDeckProps {
   movies: Movie[]
@@ -26,6 +27,7 @@ interface SwipeDeckProps {
   initialIndex?: number
   vetoedMovieIds?: Set<number>
   onUndo?: () => void
+  userGenreScores?: Record<number, number>
 }
 
 export function SwipeDeck({
@@ -49,6 +51,7 @@ export function SwipeDeck({
   partnerSwipesCount,
   initialIndex = 0,
   vetoedMovieIds,
+  userGenreScores,
 }: SwipeDeckProps) {
   const [roundIndex, setRoundIndex] = useState(initialIndex)
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
@@ -119,9 +122,11 @@ export function SwipeDeck({
       // Set target offset for natural arc exit animation and trigger haptic feedback
       if (action === 'pass') {
         hapticPass()
+        playPassSound()
         setDragOffset({ x: -window.innerWidth - 120, y: dragOffset.y + 40 })
       } else if (action === 'like') {
         hapticLike()
+        playLikeSound()
         setDragOffset({ x: window.innerWidth + 120, y: dragOffset.y + 40 })
       } else if (action === 'veto') {
         hapticVeto()
@@ -129,6 +134,7 @@ export function SwipeDeck({
       } else {
         // watched
         hapticWatched()
+        playWatchedSound()
         const exitY = dragOffset.y > 0 ? window.innerHeight + 120 : -window.innerHeight - 120
         setDragOffset({ x: dragOffset.x * 0.4, y: exitY })
       }
@@ -270,6 +276,7 @@ export function SwipeDeck({
         setDragOffset({ x: 0, y: 0 })
         setShowHeartBurst(true)
         hapticLike()
+        playHeartSound()
         setTimeout(() => {
           triggerSwipe('like')
         }, 320)
@@ -615,6 +622,7 @@ export function SwipeDeck({
               dragOffset={dragOffset}
               isDragging={isDragging}
               onOpenDetails={onOpenDetails}
+              userGenreScores={userGenreScores}
             />
           )}
 
@@ -626,6 +634,7 @@ export function SwipeDeck({
             dragOffset={dragOffset}
             isDragging={isDragging}
             onOpenDetails={onOpenDetails}
+            userGenreScores={userGenreScores}
           />
 
           {/* Instagram-style Heart Burst on Double Tap */}

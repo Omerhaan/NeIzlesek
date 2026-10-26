@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Star, Info, Calendar, Film } from 'lucide-react'
+import { Star, Info, Calendar, Film, Sparkles } from 'lucide-react'
 import type { Movie } from '../types'
 import { getMovieImageCandidates, LOGO_BASE_URL } from '../services/tmdb'
+import { calculateMovieAffinity } from '../services/tasteProfile'
 
 interface MovieCardProps {
   movie: Movie
@@ -9,6 +10,7 @@ interface MovieCardProps {
   dragOffset: { x: number; y: number }
   isDragging: boolean
   onOpenDetails?: (movie: Movie) => void
+  userGenreScores?: Record<number, number>
 }
 
 export function MovieCard({
@@ -17,6 +19,7 @@ export function MovieCard({
   dragOffset,
   isDragging,
   onOpenDetails,
+  userGenreScores,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
   const candidates = useMemo(
@@ -112,6 +115,10 @@ export function MovieCard({
       }
 
   const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
+  const affinity = useMemo(
+    () => calculateMovieAffinity(userGenreScores, movie.genre_ids, movie.vote_average),
+    [userGenreScores, movie.genre_ids, movie.vote_average]
+  )
 
   return (
     <div
@@ -305,12 +312,19 @@ export function MovieCard({
           </button>
         </div>
 
-        {/* Rating and Year Meta */}
-        <div className="flex items-center gap-3 text-xs font-semibold text-zinc-300">
+        {/* Rating and Year Meta + Personalized Taste Affinity Badge */}
+        <div className="flex items-center gap-2 text-xs font-semibold text-zinc-300 flex-wrap">
           <span className="flex items-center gap-1 bg-amber-500/20 text-amber-400 px-2.5 py-1 rounded-md border border-amber-500/30">
             <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
             {movie.vote_average.toFixed(1)}
           </span>
+
+          {affinity >= 70 && (
+            <span className="flex items-center gap-1 bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-md border border-emerald-500/30 shadow-sm">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <span>%{affinity} Sana Uygun</span>
+            </span>
+          )}
 
           {releaseYear && (
             <span className="flex items-center gap-1 bg-zinc-800/80 text-zinc-300 px-2.5 py-1 rounded-md border border-zinc-700">

@@ -722,6 +722,32 @@ export function calculateProfileStats(profile: TasteProfile): {
   }
 }
 
+// Calculate personalized taste affinity percentage (50% - 98%) for a movie based on user's genre scores
+export function calculateMovieAffinity(
+  genreScores: Record<number, number> = {},
+  genreIds: number[] = [],
+  voteAverage = 7.0
+): number {
+  if (!genreIds || genreIds.length === 0 || Object.keys(genreScores).length === 0) {
+    return Math.min(95, Math.max(65, Math.round(voteAverage * 10)))
+  }
+
+  const allScores = Object.values(genreScores)
+  const maxScore = Math.max(...allScores, 1)
+
+  let movieScore = 0
+  for (const gId of genreIds) {
+    const s = genreScores[gId] || 0
+    movieScore += s
+  }
+
+  const avgGenreScore = movieScore / genreIds.length
+  const ratio = Math.max(-0.5, Math.min(1.5, avgGenreScore / maxScore))
+
+  const basePercent = 65 + ratio * 24 + (voteAverage - 6.5) * 2.5
+  return Math.min(98, Math.max(50, Math.round(basePercent)))
+}
+
 // Calculate couple taste compatibility score (30% - 99%)
 export function calculateCoupleCompatibility(
   myScores: Record<number, number> = {},

@@ -17,6 +17,7 @@ const RoomWaitingLobby = lazy(() => import('./components/RoomWaitingLobby').then
 const GroupResultModal = lazy(() => import('./components/GroupResultModal').then((m) => ({ default: m.GroupResultModal })))
 const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ default: m.AuthModal })))
 const GlobalSearchModal = lazy(() => import('./components/GlobalSearchModal').then((m) => ({ default: m.GlobalSearchModal })))
+const MovieRouletteModal = lazy(() => import('./components/MovieRouletteModal').then((m) => ({ default: m.MovieRouletteModal })))
 import {
   getOrCreateUserId,
   createRoom,
@@ -168,6 +169,7 @@ export function App() {
   const [groupResults, setGroupResults] = useState<GroupVoteResult[] | null>(null)
   const [isGroupResultsOpen, setIsGroupResultsOpen] = useState(false)
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false)
+  const [isRouletteModalOpen, setIsRouletteModalOpen] = useState(false)
   const [recentlyWatchedMovie, setRecentlyWatchedMovie] = useState<Movie | null>(null)
   const roundNumberRef = useRef(roundNumber)
   roundNumberRef.current = roundNumber
@@ -778,6 +780,7 @@ export function App() {
         onLeaveRoom={room ? handleLeaveRoom : undefined}
         onOpenFilter={activeTab === 'match' ? () => setIsFilterOpen(true) : undefined}
         onOpenSearch={() => setIsGlobalSearchOpen(true)}
+        onOpenRoulette={() => setIsRouletteModalOpen(true)}
         selectedGenreName={headerFilterLabel}
         activeFilterCount={activeFilterCount}
       />
@@ -851,6 +854,7 @@ export function App() {
                   partnerSwipesCount={partnerSwipesCount}
                   initialIndex={initialSwipeIndex}
                   vetoedMovieIds={vetoedMovieIds}
+                  userGenreScores={tasteProfile.genreScores}
                 />
               )}
             </div>
@@ -921,6 +925,15 @@ export function App() {
           onClose={() => setIsFilterOpen(false)}
           currentFilters={filters}
           onApplyFilters={handleApplyFilters}
+        />
+
+        {/* Film Ruleti Modalı */}
+        <MovieRouletteModal
+          isOpen={isRouletteModalOpen}
+          onClose={() => setIsRouletteModalOpen(false)}
+          likedMovies={tasteProfile.likedMovies || []}
+          matchedMovies={(tasteProfile.matchHistory || []).map((h) => h.movie)}
+          onOpenDetails={(movie) => setCardDetailMovie(movie)}
         />
 
         {/* Movie Card Preview & Trailer Modal */}

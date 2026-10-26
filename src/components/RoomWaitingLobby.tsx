@@ -1,7 +1,8 @@
 import { useState } from 'react'
-import { Share2, Copy, Check, Users, Play, LogOut, Sparkles } from 'lucide-react'
+import { Share2, Copy, Check, Users, Play, LogOut, Sparkles, QrCode } from 'lucide-react'
 import type { Room, GroupParticipant } from '../types'
 import { hapticLight, hapticLike } from '../utils/haptics'
+import { RoomQRCodeModal } from './RoomQRCodeModal'
 
 interface RoomWaitingLobbyProps {
   room: Room
@@ -24,6 +25,7 @@ export function RoomWaitingLobby({
   onLeaveRoom,
 }: RoomWaitingLobbyProps) {
   const [copied, setCopied] = useState(false)
+  const [isQRModalOpen, setIsQRModalOpen] = useState(false)
   const isGroup = room.room_mode === 'group'
   const maxSlots = room.max_participants || (isGroup ? 5 : 2)
 
@@ -108,24 +110,36 @@ export function RoomWaitingLobby({
           </span>
         </div>
 
-        {/* Share Buttons */}
-        <div className="grid grid-cols-2 gap-2.5">
+        {/* Share & QR Buttons */}
+        <div className="grid grid-cols-3 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              hapticLight()
+              setIsQRModalOpen(true)
+            }}
+            className="py-3 px-2 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-amber-500/40 transition-colors cursor-pointer"
+          >
+            <QrCode className="w-4 h-4 text-amber-400" />
+            <span>QR Kod</span>
+          </button>
+
           <button
             type="button"
             onClick={handleShareWhatsApp}
-            className="py-3 px-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-transform active:scale-98 cursor-pointer"
+            className="py-3 px-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/20 transition-transform active:scale-98 cursor-pointer"
           >
             <Share2 className="w-4 h-4" />
-            <span>WhatsApp ile Paylaş</span>
+            <span>WhatsApp</span>
           </button>
 
           <button
             type="button"
             onClick={handleCopyLink}
-            className="py-3 px-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-zinc-700 transition-colors cursor-pointer"
+            className="py-3 px-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-zinc-700 transition-colors cursor-pointer"
           >
             {copied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-            <span>{copied ? 'Kopyalandı!' : 'Linki Kopyala'}</span>
+            <span>{copied ? 'Kopyalandı' : 'Kopyala'}</span>
           </button>
         </div>
       </div>
@@ -294,6 +308,14 @@ export function RoomWaitingLobby({
           <span>Odayı Kapat</span>
         </button>
       </div>
+
+      {/* QR Code Modal */}
+      <RoomQRCodeModal
+        isOpen={isQRModalOpen}
+        onClose={() => setIsQRModalOpen(false)}
+        roomCode={room.room_code}
+        roomMode={room.room_mode}
+      />
     </div>
   )
 }
