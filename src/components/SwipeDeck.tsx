@@ -4,7 +4,7 @@ import type { Movie, SwipeAction, RoomMode, GroupParticipant } from '../types'
 import { getMovieImageCandidates } from '../services/tmdb'
 import { MovieCard } from './MovieCard'
 import { hapticLike, hapticPass, hapticVeto, hapticWatched, hapticLight } from '../utils/haptics'
-import { playLikeSound, playPassSound, playWatchedSound, playHeartSound } from '../utils/audio'
+import { playLikeSound, playPassSound, playWatchedSound } from '../utils/audio'
 
 interface SwipeDeckProps {
   movies: Movie[]
@@ -20,6 +20,7 @@ interface SwipeDeckProps {
   roomMode?: RoomMode
   groupParticipants?: GroupParticipant[]
   totalSwipesCount?: number
+  likedMoviesCount?: number
   onOpenDetails?: (movie: Movie) => void
   onOpenFallback?: () => void
   onOpenGroupResults?: () => void
@@ -45,6 +46,7 @@ export function SwipeDeck({
   roomMode = 'pair',
   groupParticipants = [],
   totalSwipesCount = 0,
+  likedMoviesCount = 0,
   onOpenDetails,
   onOpenFallback,
   onOpenGroupResults,
@@ -57,7 +59,6 @@ export function SwipeDeck({
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [isDragging, setIsDragging] = useState(false)
   const [remainingVetoes, setRemainingVetoes] = useState(3)
-  const [showHeartBurst, setShowHeartBurst] = useState(false)
 
   const startPos = useRef({ x: 0, y: 0 })
   const startTime = useRef(0)
@@ -66,7 +67,6 @@ export function SwipeDeck({
   const hasAutoOpenedFallback = useRef(false)
   const hasThresholdVibrated = useRef(false)
   const swipeActionsRef = useRef<SwipeAction[]>([])
-  const lastTapTimeRef = useRef(0)
 
   useEffect(() => {
     swipeInProgress.current = false
@@ -263,26 +263,6 @@ export function SwipeDeck({
     const absY = Math.abs(dy)
     const velocityX = absX / elapsed
     const velocityY = absY / elapsed
-
-    // Double-tap to like detection: minimal drag (< 15px) and fast tap (< 280ms)
-    if (absX < 15 && absY < 15 && elapsed < 280) {
-      const now = Date.now()
-      if (now - lastTapTimeRef.current < 320) {
-        lastTapTimeRef.current = 0
-        setDragOffset({ x: 0, y: 0 })
-        setShowHeartBurst(true)
-        hapticLike()
-        playHeartSound()
-        setTimeout(() => {
-          triggerSwipe('like')
-        }, 320)
-        setTimeout(() => {
-          setShowHeartBurst(false)
-        }, 700)
-        return
-      }
-      lastTapTimeRef.current = now
-    }
 
     // Fast flick: small distance (>= 35px) but high velocity in under 380ms
     const isFlickX = elapsed < 380 && absX >= 35 && velocityX > 0.28
@@ -619,7 +599,7 @@ export function SwipeDeck({
               isDragging={isDragging}
               onOpenDetails={onOpenDetails}
               userGenreScores={userGenreScores}
-              totalSwipesCount={totalSwipesCount}
+              likedMoviesCount={likedMoviesCount}
             />
           )}
 
@@ -632,17 +612,8 @@ export function SwipeDeck({
             isDragging={isDragging}
             onOpenDetails={onOpenDetails}
             userGenreScores={userGenreScores}
-            totalSwipesCount={totalSwipesCount}
+            likedMoviesCount={likedMoviesCount}
           />
-
-          {/* Instagram-style Heart Burst on Double Tap */}
-          {showHeartBurst && (
-            <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center">
-              <div className="animate-heart-burst flex items-center justify-center">
-                <Heart className="w-28 h-28 text-white fill-red-500 drop-shadow-[0_0_35px_rgba(239,68,68,0.9)]" />
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Floating Story-Style Top Bar Overlay (Thin Progress Line + Undo & Round Status) */}

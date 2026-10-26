@@ -11,7 +11,7 @@ interface MovieCardProps {
   isDragging: boolean
   onOpenDetails?: (movie: Movie) => void
   userGenreScores?: Record<number, number>
-  totalSwipesCount?: number
+  likedMoviesCount?: number
 }
 
 export function MovieCard({
@@ -21,7 +21,7 @@ export function MovieCard({
   isDragging,
   onOpenDetails,
   userGenreScores,
-  totalSwipesCount = 0,
+  likedMoviesCount = 0,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
   const candidates = useMemo(
@@ -118,8 +118,8 @@ export function MovieCard({
 
   const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
   const affinity = useMemo(
-    () => calculateMovieAffinity(userGenreScores, movie.genre_ids, movie.vote_average, totalSwipesCount),
-    [userGenreScores, movie.genre_ids, movie.vote_average, totalSwipesCount]
+    () => calculateMovieAffinity(userGenreScores, movie.genre_ids, movie.vote_average, likedMoviesCount),
+    [userGenreScores, movie.genre_ids, movie.vote_average, likedMoviesCount]
   )
 
   return (

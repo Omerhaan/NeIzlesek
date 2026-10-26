@@ -705,6 +705,10 @@ export function App() {
     }
   }
 
+  const handleDismissRecentlyWatched = useCallback(() => {
+    setRecentlyWatchedMovie(null)
+  }, [])
+
   const handleUndo = useCallback(() => {
     const lastAction = swipeHistoryRef.current.pop()
     if (!lastAction) return
@@ -877,6 +881,7 @@ export function App() {
                   roomMode={room?.room_mode}
                   groupParticipants={groupParticipants}
                   totalSwipesCount={tasteProfile.totalSwipes}
+                  likedMoviesCount={tasteProfile.likedMovies?.length || 0}
                   onOpenDetails={setCardDetailMovie}
                   onOpenFallback={room && room.room_mode !== 'group' ? () => setIsFallbackOpen(true) : undefined}
                   onOpenGroupResults={room && room.room_mode === 'group' ? handleOpenGroupResults : undefined}
@@ -915,7 +920,7 @@ export function App() {
       <QuickRatingPrompt
         movie={recentlyWatchedMovie}
         onRate={handleQuickRate}
-        onDismiss={() => setRecentlyWatchedMovie(null)}
+        onDismiss={handleDismissRecentlyWatched}
       />
 
       {/* Bottom Navigation Bar */}
