@@ -174,6 +174,17 @@ export function App() {
   const roundNumberRef = useRef(roundNumber)
   roundNumberRef.current = roundNumber
 
+  const roomRef = useRef<Room | null>(room)
+  roomRef.current = room
+
+  const hasRoomContext = useCallback(() => {
+    return Boolean(
+      roomRef.current ||
+      new URLSearchParams(window.location.search).has('room') ||
+      sessionStorage.getItem('neizlesek_active_room_code')
+    )
+  }, [])
+
   const tasteProfileRef = useRef(tasteProfile)
   tasteProfileRef.current = tasteProfile
 
@@ -274,13 +285,18 @@ export function App() {
   // Load movies from TMDb with duplicate & already swiped movie exclusion
   const loadMovies = useCallback(
     async (pageNum: number, currentFilters: FilterState, append = false, limit = 20) => {
+      // Never fetch solo movies if an active room exists or room join is in progress
+      if (hasRoomContext()) {
+        return
+      }
+
       setIsLoading(true)
       try {
         const currentProfile = tasteProfileRef.current
 
         // If genreId is 0 and we are in room mode, consider user's top genre
         const effectiveFilters: FilterState = { ...currentFilters }
-        if (effectiveFilters.genreId === 0 && room) {
+        if (effectiveFilters.genreId === 0 && roomRef.current) {
           const topUserGenres = getTopGenreIds(currentProfile, 1)
           if (topUserGenres.length > 0) {
             effectiveFilters.genreId = topUserGenres[0]
@@ -344,6 +360,11 @@ export function App() {
           }
         }
 
+        // Guard against race condition: room was connected while TMDb calls were in flight
+        if (hasRoomContext()) {
+          return
+        }
+
         // Enrich the top 6 movies with streaming providers immediately
         const enriched = await Promise.all(
           accumulated.map(async (m, idx) => {
@@ -363,15 +384,15 @@ export function App() {
         setIsLoading(false)
       }
     },
-    [room]
+    [hasRoomContext]
   )
 
   // Initialize movies on mount or when filters / room change
   useEffect(() => {
-    if (tasteProfile.isOnboarded && !room) {
+    if (tasteProfile.isOnboarded && !hasRoomContext()) {
       loadMovies(1, filters, false, 20)
     }
-  }, [tasteProfile.isOnboarded, room, filters, loadMovies])
+  }, [tasteProfile.isOnboarded, filters, loadMovies, hasRoomContext])
 
   // Check URL query parameters or sessionStorage for active room on mount
   useEffect(() => {
@@ -384,6 +405,10 @@ export function App() {
           setActiveTab('match')
         } else {
           sessionStorage.removeItem('neizlesek_active_room_code')
+          window.history.replaceState({}, '', window.location.pathname)
+          if (tasteProfileRef.current.isOnboarded) {
+            loadMovies(1, filters, false, 20)
+          }
         }
       })
     }
@@ -616,6 +641,7 @@ export function App() {
     setPartnerJoinedNotice(null)
     setPartnerScores(undefined)
     setRoom(null)
+    roomRef.current = null
     setVetoedMovieIds(new Set())
     setRoomSyncError(null)
     setRoundNumber(1)
@@ -742,8 +768,9 @@ export function App() {
     swipeHistoryRef.current = []
     setFilters(newFilters)
     setRoundNumber(1)
-    const limit = room ? 25 : 20
-    loadMovies(1, newFilters, false, limit)
+    if (!roomRef.current) {
+      loadMovies(1, newFilters, false, 20)
+    }
   }
 
   // Calculate active filter count for badge
@@ -765,7 +792,9 @@ export function App() {
             initialProfile={tasteProfile}
             onComplete={(completedProfile) => {
               setTasteProfile(completedProfile)
-              loadMovies(1, filters, false, 20)
+              if (!hasRoomContext()) {
+                loadMovies(1, filters, false, 20)
+              }
             }}
           />
         </Suspense>

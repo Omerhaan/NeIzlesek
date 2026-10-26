@@ -11,6 +11,7 @@ interface MovieCardProps {
   isDragging: boolean
   onOpenDetails?: (movie: Movie) => void
   userGenreScores?: Record<number, number>
+  totalSwipesCount?: number
 }
 
 export function MovieCard({
@@ -20,6 +21,7 @@ export function MovieCard({
   isDragging,
   onOpenDetails,
   userGenreScores,
+  totalSwipesCount = 0,
 }: MovieCardProps) {
   const [showDetails, setShowDetails] = useState(false)
   const candidates = useMemo(
@@ -116,8 +118,8 @@ export function MovieCard({
 
   const releaseYear = movie.release_date ? movie.release_date.substring(0, 4) : ''
   const affinity = useMemo(
-    () => calculateMovieAffinity(userGenreScores, movie.genre_ids, movie.vote_average),
-    [userGenreScores, movie.genre_ids, movie.vote_average]
+    () => calculateMovieAffinity(userGenreScores, movie.genre_ids, movie.vote_average, totalSwipesCount),
+    [userGenreScores, movie.genre_ids, movie.vote_average, totalSwipesCount]
   )
 
   return (
@@ -319,7 +321,7 @@ export function MovieCard({
             {movie.vote_average.toFixed(1)}
           </span>
 
-          {affinity >= 70 && (
+          {affinity !== null && affinity >= 70 && (
             <span className="flex items-center gap-1 bg-emerald-500/20 text-emerald-400 px-2.5 py-1 rounded-md border border-emerald-500/30 shadow-sm">
               <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
               <span>%{affinity} Sana Uygun</span>

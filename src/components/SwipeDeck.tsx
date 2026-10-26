@@ -86,12 +86,8 @@ export function SwipeDeck({
     }
   }, [initialIndex])
 
-  // Calculate actual round limit based on available movies
-  const effectiveLimit = hasRoundLimit
-    ? movies.length > 0
-      ? Math.min(roundLimit, movies.length)
-      : roundLimit
-    : roundLimit
+  // In room mode, round limit is strictly locked to roundLimit (25) across all devices
+  const effectiveLimit = roundLimit
 
   // In infinite mode (no round limit), auto-load more movies when nearing end
   useEffect(() => {
@@ -623,6 +619,7 @@ export function SwipeDeck({
               isDragging={isDragging}
               onOpenDetails={onOpenDetails}
               userGenreScores={userGenreScores}
+              totalSwipesCount={totalSwipesCount}
             />
           )}
 
@@ -635,6 +632,7 @@ export function SwipeDeck({
             isDragging={isDragging}
             onOpenDetails={onOpenDetails}
             userGenreScores={userGenreScores}
+            totalSwipesCount={totalSwipesCount}
           />
 
           {/* Instagram-style Heart Burst on Double Tap */}

@@ -723,13 +723,21 @@ export function calculateProfileStats(profile: TasteProfile): {
 }
 
 // Calculate personalized taste affinity percentage (50% - 98%) for a movie based on user's genre scores
+// Returns null if the user has no real swipe/taste history yet to avoid fake scores on fresh accounts
 export function calculateMovieAffinity(
   genreScores: Record<number, number> = {},
   genreIds: number[] = [],
-  voteAverage = 7.0
-): number {
-  if (!genreIds || genreIds.length === 0 || Object.keys(genreScores).length === 0) {
-    return Math.min(95, Math.max(65, Math.round(voteAverage * 10)))
+  voteAverage = 7.0,
+  totalSwipes = 0
+): number | null {
+  const hasRealTasteData =
+    (totalSwipes > 0 || Object.values(genreScores).some((s) => s > 0)) &&
+    genreScores &&
+    Object.keys(genreScores).length > 0 &&
+    Object.values(genreScores).some((s) => s > 0)
+
+  if (!hasRealTasteData || !genreIds || genreIds.length === 0) {
+    return null
   }
 
   const allScores = Object.values(genreScores)
