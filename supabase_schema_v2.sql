@@ -188,3 +188,30 @@ CREATE TABLE IF NOT EXISTS public.room_participant_tastes (
 
 GRANT SELECT, INSERT, UPDATE ON public.room_user_decks TO anon, authenticated, service_role;
 GRANT SELECT, INSERT, UPDATE ON public.room_participant_tastes TO anon, authenticated, service_role;
+
+-- 7. RLS Politikaları (Hem anon hem authenticated kullanıcılar için)
+ALTER TABLE public.match_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all access to match_rooms for anon and authenticated" ON public.match_rooms;
+CREATE POLICY "Allow all access to match_rooms for anon and authenticated"
+ON public.match_rooms FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE public.room_swipes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all access to room_swipes for anon and authenticated" ON public.room_swipes;
+CREATE POLICY "Allow all access to room_swipes for anon and authenticated"
+ON public.room_swipes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE public.room_user_decks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all access to room_user_decks for anon and authenticated" ON public.room_user_decks;
+CREATE POLICY "Allow all access to room_user_decks for anon and authenticated"
+ON public.room_user_decks FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+ALTER TABLE public.room_participant_tastes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow all access to room_participant_tastes for anon and authenticated" ON public.room_participant_tastes;
+CREATE POLICY "Allow all access to room_participant_tastes for anon and authenticated"
+ON public.room_participant_tastes FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
+GRANT ALL ON public.match_rooms TO anon, authenticated, service_role;
+GRANT ALL ON public.room_swipes TO anon, authenticated, service_role;
+GRANT ALL ON public.room_user_decks TO anon, authenticated, service_role;
+GRANT ALL ON public.room_participant_tastes TO anon, authenticated, service_role;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role;

@@ -41,6 +41,7 @@ export function AuthModal({
           email: cleanEmail,
           password: password,
           options: {
+            emailRedirectTo: window.location.origin,
             data: {
               username: username.trim() || currentProfile.username || 'Sinemasever',
               avatar: currentProfile.avatar,
@@ -54,15 +55,19 @@ export function AuthModal({
         if (data.session && data.user) {
           hapticLike()
           setSuccessMsg('Hesabınız başarıyla oluşturuldu ve verileriniz buluta yedeklendi! 🎉')
+          const updatedProfile = {
+            ...currentProfile,
+            username: username.trim() || currentProfile.username,
+          }
           setTimeout(() => {
-            onAuthSuccess(data.user)
+            onAuthSuccess(data.user, updatedProfile)
             onClose()
           }, 1200)
         } else {
           // Email confirmation is required by Supabase project settings
           hapticLight()
           setSuccessMsg(
-            'Kayıt başarılı! E-posta adresinize bir onay linki gönderildi. Onayladıktan sonra giriş yapabilirsiniz.'
+            'Kayıt başarılı! E-posta adresinize bir onay linki gönderildi. Linke tıklayarak hesabınızı aktif edebilirsiniz.'
           )
         }
       } else {

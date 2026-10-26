@@ -19,6 +19,7 @@ const AuthModal = lazy(() => import('./components/AuthModal').then((m) => ({ def
 const GlobalSearchModal = lazy(() => import('./components/GlobalSearchModal').then((m) => ({ default: m.GlobalSearchModal })))
 const MovieRouletteModal = lazy(() => import('./components/MovieRouletteModal').then((m) => ({ default: m.MovieRouletteModal })))
 import {
+  supabase,
   getOrCreateUserId,
   createRoom,
   joinRoom,
@@ -193,8 +194,9 @@ export function App() {
 
   const swipeHistoryRef = useRef<Array<{ movie: Movie; action: SwipeAction; previousProfile: TasteProfile }>>([])
 
-  // Check Supabase Auth user on mount
+  // Listen to Supabase Auth state changes (including email verification redirects and sessions)
   useEffect(() => {
+    // Initial check
     getCurrentAuthUser().then((user) => {
       if (user) {
         setAuthUser(user)
@@ -205,6 +207,28 @@ export function App() {
         }
       }
     })
+
+    // Realtime auth listener for email confirmation redirects / signin / signout
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        setAuthUser(session.user)
+        const cloudProfile = session.user.user_metadata?.taste_profile as TasteProfile | undefined
+        if (cloudProfile && cloudProfile.totalSwipes >= tasteProfileRef.current.totalSwipes) {
+          setTasteProfile(cloudProfile)
+          saveTasteProfile(cloudProfile)
+        }
+        // Clean URL if coming from email confirmation hash or code
+        if (window.location.hash.includes('access_token') || window.location.search.includes('code=')) {
+          window.history.replaceState({}, '', window.location.pathname)
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setAuthUser(null)
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
+    }
   }, [])
 
   const handleAuthSuccess = (user: any, restoredProfile?: TasteProfile) => {
