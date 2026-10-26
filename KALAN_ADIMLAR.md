@@ -484,3 +484,11 @@ Bu bölüm, geliştirme ve test sürecinde karşılaşılan tüm teknik hatalar�
   - **Doğrudan Listeye Ekleme & Puanlama:** Arama sonuçlarından tek tıkla filme Beğen (İzlemek İstediklerim'e ekle) veya İzlendi (1-10 puan seçicisiyle birlikte) işlemi yapılabilir.
   - **Hızlı 1-10 Yıldız Puanlama Çubuğu (`QuickRatingPrompt`):** Ana akışta bir film aşağı kaydırılarak "İzlendi" olarak işaretlendiğinde, ekranın altında zarif bir puanlama barı belirir (`1-10` puan butonları). Kullanıcı tek tıkla puanını belirleyebilir veya geçebilir.
 
+- [x] **Adım 5: Ses Efektleri, Akıllı Zevk Uyumu Rozeti, QR Kod, Film Ruleti & CSV Dışa Aktarma:**
+  - **Hafif Ses Efektleri (Web Audio API):** `src/utils/audio.ts` modülü oluşturuldu; 0 KB harici dosya ile kaydırma tınıları (Beğen/Pas/İzlendi), kalp patlaması tınısı, eşleşme kutlama fanfarı ve rulet tık sesleri sentezlendi. Üst bara anlık açma/kapatma (🔊 / 🔇) anahtarı eklendi.
+  - **Akıllı Zevk Eşleşme Rozeti (`%94 Sana Uygun`):** `calculateMovieAffinity` algoritmasıyla kullanıcının tür zevk skorları ile filmin türleri anlık eşleştirilerek kart üzerinde dinamik ve motive edici yeşil zevk uyumu rozeti (`🎯 %88-98 Sana Uygun`) gösterildi.
+  - **QR Kod ile Odaya Tek Tıkla Bağlanma (`RoomQRCodeModal`):** Bekleme lobisine ve kullanıcı profiline QR Kod butonu entegre edildi; koltukta oturan partnerin 6 haneli kodu yazmadan telefon kamerasıyla anında odaya girmesi sağlandı.
+  - **Film Ruleti / Karar Çarkı (`MovieRouletteModal`):** Beğenilen veya eşleşen filmler arasından seçim yapamayan çiftler/kullanıcılar için slot makinesi animasyonlu, sesli ve konfetili rastgele film seçici modalı eklendi. Üst bardan ve profil listesinden tek tıkla erişilebilir.
+  - **İzleme Listesini Dışa Aktar (`src/utils/exportList.ts`):** "İzlediklerim" (puanlarıyla beraber) ve "İzlemek İstediklerim" listelerini Excel ve Letterboxd uyumlu, Türkçe karakter destekli UTF-8 BOM `.csv` dosyası olarak tek tıkla indirme desteği sunuldu.
+
+
